@@ -1,9 +1,9 @@
 package server
 
 import (
-	"log"
 	"net/http"
 
+	"github.com/charmbracelet/log"
 	"github.com/godin/internal/server/routes"
 )
 
@@ -24,10 +24,15 @@ func startServer() {
 }
 
 func Start() {
+	log.Info("[SERVER] Started")
+
 	go func() {
 		initializeRoutes()
 
-		log.Printf("Starting server on %s...", SERVER_URL)
 		startServer()
 	}()
+}
+
+func Stop() {
+	log.Info("[SERVER] Stopped")
 }
