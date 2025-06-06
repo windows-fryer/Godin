@@ -10,6 +10,7 @@ import (
 )
 
 var MongoSession *mongo.Client
+var MongoContext = context.TODO()
 
 func connectToMongoDB() (*mongo.Client, error) {
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
@@ -19,7 +20,7 @@ func connectToMongoDB() (*mongo.Client, error) {
 }
 
 func Start() {
-	log.Info("[DATABASE] Started")
+	log.Info("Database started")
 
 	go func() {
 		mongoSession, err := connectToMongoDB()
@@ -33,9 +34,9 @@ func Start() {
 }
 
 func Stop() {
-	log.Info("[DATABASE] Stopped")
+	log.Info("Database stopped")
 
-	if err := MongoSession.Disconnect(context.TODO()); err != nil {
-		log.Error("[DATABASE] Error disconnecting from database: %v", err)
+	if err := MongoSession.Disconnect(MongoContext); err != nil {
+		log.Error("Error disconnecting from database: %v", err)
 	}
 }

@@ -4,9 +4,10 @@ go 1.24.3
 
 require (
 	github.com/bwmarrin/discordgo v0.29.0
+	github.com/charmbracelet/log v0.4.2
 	github.com/joho/godotenv v1.5.1
 	go.mongodb.org/mongo-driver/v2 v2.2.1
-	github.com/charmbracelet/log v0.4.2
+	github.com/google/uuid v1.6.0
 )
 
 require (

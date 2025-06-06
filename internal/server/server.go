@@ -14,7 +14,8 @@ func initializeRoutes() {
 		w.WriteHeader(http.StatusBadRequest)
 	})
 
-	http.HandleFunc("/api/v1/download/", routes.DownloadHandler)
+	http.HandleFunc("/v1/upload/", routes.UploadHandler)
+	http.HandleFunc("/v1/download/", routes.DownloadHandler)
 }
 
 func startServer() {
@@ -24,7 +25,7 @@ func startServer() {
 }
 
 func Start() {
-	log.Info("[SERVER] Started")
+	log.Info("Server started")
 
 	go func() {
 		initializeRoutes()
@@ -34,5 +35,5 @@ func Start() {
 }
 
 func Stop() {
-	log.Info("[SERVER] Stopped")
+	log.Info("Server stopped")
 }
