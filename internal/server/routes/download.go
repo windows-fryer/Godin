@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -8,6 +10,85 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/godin/internal/database"
 )
+
+type VFSReadSeeker struct {
+	parts  []database.VFSFilePart
+	client *http.Client
+	off    int64
+	size   int64
+}
+
+func NewVFSReadSeeker(client *http.Client, parts []database.VFSFilePart, size int64) *VFSReadSeeker {
+	return &VFSReadSeeker{parts: parts, client: client, size: size}
+}
+
+// Seek sets the read offset
+func (v *VFSReadSeeker) Seek(offset int64, whence int) (int64, error) {
+	var newOff int64
+	switch whence {
+	case io.SeekStart:
+		newOff = offset
+	case io.SeekCurrent:
+		newOff = v.off + offset
+	case io.SeekEnd:
+		newOff = v.size + offset
+	default:
+		return 0, fmt.Errorf("invalid whence")
+	}
+	if newOff < 0 || newOff > v.size {
+		return 0, fmt.Errorf("offset out of range")
+	}
+	v.off = newOff
+	return v.off, nil
+}
+
+// Read will pull exactly len(p) bytes (or less at EOF) from the appropriate part(s)
+func (v *VFSReadSeeker) Read(p []byte) (int, error) {
+	if v.off >= v.size {
+		return 0, io.EOF
+	}
+
+	// Find which FilePart contains v.off
+	for _, part := range v.parts {
+		start := int64(part.PartIndex)
+		end := start + int64(part.PartSize)
+		if v.off < end {
+			// how many bytes we can read from this part
+			maxInPart := int(end - v.off)
+			toRead := len(p)
+			if toRead > maxInPart {
+				toRead = maxInPart
+			}
+
+			// request exactly that slice from Discord
+			url := "https://cdn.discordapp.com/attachments/" + part.PartAttachmentURL
+			req, _ := http.NewRequest("GET", url, nil)
+			// Range header within that part
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", v.off-start, v.off-start+int64(toRead)-1))
+			resp, err := v.client.Do(req)
+			if err != nil {
+				return 0, err
+			}
+			defer resp.Body.Close()
+
+			// fetch & XOR-decode
+			buf := make([]byte, toRead)
+			if _, err := io.ReadFull(resp.Body, buf); err != nil {
+				return 0, err
+			}
+			for i := range buf {
+				buf[i] ^= 0x55
+			}
+			copy(p, buf)
+
+			v.off += int64(toRead)
+			return toRead, nil
+		}
+	}
+
+	// somehow past all parts
+	return 0, io.EOF
+}
 
 func DownloadHandler(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.URL.Path, "/v1/download/") {
@@ -136,7 +217,6 @@ func DownloadHandler(w http.ResponseWriter, r *http.Request) {
 
 		defer partResponse.Body.Close()
 
-		// Send 4kb chunks to the multipart writer
 		buffer := make([]byte, 1024*1024)
 
 		totalBytesRead := 0
