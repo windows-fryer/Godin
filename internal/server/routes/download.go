@@ -31,6 +31,7 @@ func newVFSReadSeeker(client *http.Client, parts []database.VFSFilePart, size in
 // Seek sets the read offset
 func (v *VFSReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	var newOff int64
+
 	switch whence {
 	case io.SeekStart:
 		newOff = offset
@@ -41,10 +42,13 @@ func (v *VFSReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	default:
 		return 0, fmt.Errorf("invalid whence")
 	}
+
 	if newOff < 0 || newOff > v.size {
 		return 0, fmt.Errorf("offset out of range")
 	}
+
 	v.off = newOff
+
 	return v.off, nil
 }
 
@@ -62,6 +66,7 @@ func (v *VFSReadSeeker) Read(p []byte) (int, error) {
 		for _, part := range v.parts {
 			start = int64(part.PartIndex)
 			end := start + int64(part.PartSize)
+
 			if v.off < end {
 				dp = part
 				break
@@ -95,7 +100,7 @@ func (v *VFSReadSeeker) Read(p []byte) (int, error) {
 		v.buf = raw
 		v.bufStart = start
 	}
-	// serve from buffer
+
 	offsetInBuf := v.off - v.bufStart
 
 	n := copy(p, v.buf[offsetInBuf:])
@@ -121,6 +126,10 @@ func DownloadHandler(w http.ResponseWriter, r *http.Request) {
 
 	fileId := parsedURL[0]
 
+	if strings.Contains(fileId, ".") {
+		fileId = strings.Split(fileId, ".")[0]
+	}
+
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -137,15 +146,17 @@ func DownloadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// detect MIME type based on file extension (fallback to binary)
 	ext := filepath.Ext(fileDocument.FileName)
 	mimeType := mime.TypeByExtension(ext)
+
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
+
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Accept-Ranges", "bytes")
 
 	escaped := url.PathEscape(fileDocument.FileName)
 

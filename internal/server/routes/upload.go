@@ -2,6 +2,8 @@ package routes
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -16,7 +18,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const chunkSize = 1 << 23 // 8MB
+const chunkSize = 10485316 //Discord said so
 
 func getWebhook(guildId int) (map[string]any, error) {
 	directories, err := database.GetVFSDirectories(guildId)
@@ -28,7 +30,7 @@ func getWebhook(guildId int) (map[string]any, error) {
 	}
 
 	directoryCount := len(directories)
-	randomIndex := rand.Int() % directoryCount
+	randomIndex := rand.IntN(directoryCount)
 
 	return directories[randomIndex], nil
 }
@@ -45,10 +47,6 @@ func uploadToWebhook(webhookId string, webhookToken string, data []byte) (*disco
 
 func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	log.Info("Received upload request", "method", r.Method, "url", r.URL.String())
-
-	// parse /v1/upload/<guild_id> from the URL
-
-	log.Info("Parsing URL path", "path", r.URL.Path)
 
 	if !strings.HasPrefix(r.URL.Path, "/v1/upload/") {
 		http.Error(w, "Invalid URL path", http.StatusBadRequest)
@@ -111,8 +109,8 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, err := part.Read(buf[curOffset:])
 
-			if err != nil && err.Error() != "EOF" {
-				return
+			if err != nil && !errors.Is(err, io.EOF) {
+				break
 			}
 
 			if n == 0 {
@@ -138,11 +136,8 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		data := make([]byte, curOffset)
-		copy(data, buf[:curOffset])
-
-		for nibble := range data {
-			data[nibble] ^= 0x55
+		for nibble := range buf {
+			buf[nibble] ^= 0x55
 		}
 
 		wg.Add(1)
@@ -166,7 +161,7 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 			mu.Unlock()
 
 			log.Info("Chunk uploaded successfully", "size", len(payload), "webhook_id", webhookID)
-		}(webhookDocument["webhook_id"].(int64), webhookDocument["webhook_token"].(string), data, parts)
+		}(webhookDocument["webhook_id"].(int64), webhookDocument["webhook_token"].(string), buf, parts)
 
 		parts++
 	}
@@ -179,29 +174,29 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		sortedParts[msg.Part] = msg
 	}
 
-	parsedMessages := make(map[string]any, len(messages))
+	parsedMessages := database.VFSFile{
+		FileID:        uuid.NewString(),
+		FileName:      part.FileName(),
+		FileSize:      int32(fileSize),
+		FileTimestamp: time.Now().Unix(),
+		FileGuildID:   guildIdToInt,
+
+		FileParts: make([]database.VFSFilePart, len(sortedParts)),
+	}
 
 	currentSize := 0
-
-	parsedMessages["_id"] = uuid.New().String()
-	parsedMessages["file_name"] = part.FileName()
-	parsedMessages["file_size"] = fileSize
-	parsedMessages["file_timestamp"] = time.Now().Unix()
-	parsedMessages["file_guild_id"] = guildIdToInt
-
-	parsedMessages["parts"] = make([]map[string]any, len(messages))
 
 	for i, msg := range sortedParts {
 		messageIdToInt, _ := strconv.Atoi(msg.Message.ID)
 		channelIdToInt, _ := strconv.Atoi(msg.Message.ChannelID)
 
-		parsedMessages["parts"].([]map[string]any)[i] = map[string]any{
-			"_id": messageIdToInt,
+		parsedMessages.FileParts[i] = database.VFSFilePart{
+			PartID: int64(messageIdToInt),
 
-			"channel_id":     channelIdToInt,
-			"attachment_url": strings.Split(msg.Message.Attachments[0].URL, "https://cdn.discordapp.com/attachments/")[1],
-			"part_size":      msg.Size,
-			"part_index":     currentSize,
+			PartChannelID:     int64(channelIdToInt),
+			PartAttachmentURL: strings.Split(msg.Message.Attachments[0].URL, "https://cdn.discordapp.com/attachments/")[1],
+			PartSize:          int32(msg.Size),
+			PartIndex:         int32(currentSize),
 		}
 
 		currentSize += msg.Size
@@ -215,7 +210,7 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Upload completed successfully"))
+	w.Write([]byte(parsedMessages.FileID))
 
-	log.Info("Upload completed successfully")
+	log.Info("Upload completed successfully", "guild_id", guildIdToInt, "file_id", parsedMessages.FileID, "file_size", fileSize)
 }
