@@ -129,16 +129,16 @@ func GetVFSFiles(guildID int) ([]map[string]any, error) {
 type VFSFilePart struct {
 	PartID            int64  `bson:"_id"`
 	PartAttachmentURL string `bson:"attachment_url"`
-	PartSize          int32  `bson:"part_size"`
+	PartSize          int64  `bson:"part_size"`
 	PartChannelID     int64  `bson:"channel_id"`
-	PartIndex         int32  `bson:"part_index"`
+	PartIndex         int64  `bson:"part_index"`
 }
 
 type VFSFile struct {
 	FileID        string        `bson:"_id"`
 	FileGuildID   int           `bson:"file_guild_id"`
 	FileName      string        `bson:"file_name"`
-	FileSize      int32         `bson:"file_size"`
+	FileSize      int64         `bson:"file_size"`
 	FileTimestamp int64         `bson:"file_timestamp"`
 	FileParts     []VFSFilePart `bson:"parts"`
 }

@@ -219,7 +219,7 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	parsedMessages := database.VFSFile{
 		FileID:        uuid.NewString(),
 		FileName:      part.FileName(),
-		FileSize:      int32(fileSize),
+		FileSize:      int64(fileSize),
 		FileTimestamp: time.Now().Unix(),
 		FileGuildID:   guildIdToInt,
 		FileParts:     make([]database.VFSFilePart, len(sortedParts)),
@@ -234,8 +234,8 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 			PartID:            int64(messageIdToInt),
 			PartChannelID:     int64(channelIdToInt),
 			PartAttachmentURL: strings.Split(msg.Message.Attachments[0].URL, "https://cdn.discordapp.com/attachments/")[1],
-			PartSize:          int32(msg.Size),
-			PartIndex:         int32(currentSizeOffset),
+			PartSize:          int64(msg.Size),
+			PartIndex:         int64(currentSizeOffset),
 		}
 		currentSizeOffset += msg.Size
 	}
