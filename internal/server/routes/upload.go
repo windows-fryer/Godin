@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -19,6 +20,13 @@ import (
 )
 
 const chunkSize = 10485316 //Discord said so
+
+var chunkBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, chunkSize)
+		return &b
+	},
+}
 
 func getWebhook(guildId int) (map[string]any, error) {
 	directories, err := database.GetVFSDirectories(guildId)
@@ -36,7 +44,6 @@ func getWebhook(guildId int) (map[string]any, error) {
 }
 
 func uploadToWebhook(webhookId string, webhookToken string, data []byte) (*discordgo.Message, error) {
-
 	return discord.DiscordClient.WebhookExecute(webhookId, webhookToken, true, &discordgo.WebhookParams{
 		Files: []*discordgo.File{{
 			Name:   uuid.New().String(),
@@ -75,17 +82,15 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Error("Failed to read multipart form", "error", err)
-
 		http.Error(w, "Failed to read multipart form", http.StatusBadRequest)
-
 		return
 	}
 
 	part, err := reader.NextPart()
 
 	if err != nil {
-		log.Error("Failed to get next part", "error", err)
-
+		log.Error("Failed to get next part from multipart reader", "error", err)
+		http.Error(w, "Failed to process multipart data", http.StatusInternalServerError) // Send error to client
 		return
 	}
 
@@ -100,78 +105,115 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	messages := make([]WebhookMessage, 0)
 	fileSize := 0
-	parts := 0
+
+	var parts uint64
 
 	for {
-		buf := make([]byte, chunkSize)
+		bufferPtr := chunkBufferPool.Get().(*[]byte)
+		buffer := *bufferPtr
 		curOffset := 0
 
 		for {
-			n, err := part.Read(buf[curOffset:])
+			n, readErr := part.Read(buffer[curOffset:])
+			if n > 0 {
+				curOffset += n
+				fileSize += n
+			}
 
-			if err != nil && !errors.Is(err, io.EOF) {
+			if readErr != nil {
+				if errors.Is(readErr, io.EOF) {
+					break
+				}
+
+				log.Error("Error reading from multipart part", "error", readErr)
+				http.Error(w, "Failed to read uploaded file stream", http.StatusInternalServerError)
+
+				chunkBufferPool.Put(bufferPtr)
+
+				return
+			}
+
+			if curOffset == len(buffer) {
 				break
 			}
 
 			if n == 0 {
 				break
 			}
-
-			curOffset += n
-			fileSize += n
 		}
-
 		if curOffset == 0 {
+			chunkBufferPool.Put(bufferPtr)
 			break
 		}
 
-		log.Info("Received chunk", "size", curOffset)
+		payload := make([]byte, curOffset)
+		copy(payload, buffer[:curOffset])
 
-		webhookDocument, err := getWebhook(guildIdToInt)
+		chunkBufferPool.Put(bufferPtr)
 
-		if err != nil {
-			log.Error("Failed to get webhook URL", "error", err)
+		partNum := int(atomic.AddUint64(&parts, 1) - 1)
+
+		log.Info("Processing chunk", "part_index", partNum, "size", len(payload))
+
+		webhookDocument, whErr := getWebhook(guildIdToInt)
+		if whErr != nil {
+			log.Error("Failed to get webhook URL", "error", whErr)
 			http.Error(w, "Failed to get webhook URL", http.StatusInternalServerError)
-
-			return
+			return // Abort upload
 		}
 
-		for nibble := range buf {
-			buf[nibble] ^= 0x55
+		for i := range payload {
+			payload[i] ^= 0x55
 		}
 
 		wg.Add(1)
 
-		go func(webhookID int64, webhookToken string, payload []byte, part int) {
+		go func(webhookID int64, webhookToken string, dataToSend []byte, partNum int) {
 			defer wg.Done()
 
 			webhookIDtoStr := strconv.FormatInt(webhookID, 10)
+			msg, uploadErr := uploadToWebhook(webhookIDtoStr, webhookToken, dataToSend)
 
-			msg, err := uploadToWebhook(webhookIDtoStr, webhookToken, payload)
-			if err != nil {
-				log.Error("Failed to upload chunk", "error", err, "webhook_id", webhookID)
+			if uploadErr != nil {
+				log.Error("Failed to upload chunk", "error", uploadErr, "webhook_id", webhookID, "part_num", partNum)
 
 				return
 			}
 
 			mu.Lock()
-
-			messages = append(messages, WebhookMessage{msg, part, len(payload)})
-
+			messages = append(messages, WebhookMessage{Message: msg, Part: partNum, Size: len(dataToSend)})
 			mu.Unlock()
 
-			log.Info("Chunk uploaded successfully", "size", len(payload), "webhook_id", webhookID)
-		}(webhookDocument["webhook_id"].(int64), webhookDocument["webhook_token"].(string), buf, parts)
-
-		parts++
+			log.Info("Chunk uploaded successfully", "part_num", partNum, "size", len(dataToSend), "webhook_id", webhookID)
+		}(webhookDocument["webhook_id"].(int64), webhookDocument["webhook_token"].(string), payload, partNum)
 	}
 
 	wg.Wait()
 
-	sortedParts := make([]WebhookMessage, len(messages))
+	totalParts := int(atomic.LoadUint64(&parts))
 
+	if len(messages) != totalParts {
+		log.Error("Mismatch in expected parts and successfully uploaded parts", "expected", parts, "successful", len(messages))
+		http.Error(w, "One or more file parts failed to upload", http.StatusInternalServerError)
+		return
+	}
+
+	sortedParts := make([]WebhookMessage, totalParts)
 	for _, msg := range messages {
+		if msg.Part < 0 || msg.Part >= totalParts {
+			log.Error("Invalid part number", "part", msg.Part, "total_parts", totalParts)
+			http.Error(w, "Internal error processing uploaded parts", http.StatusInternalServerError)
+			return
+		}
 		sortedParts[msg.Part] = msg
+	}
+
+	for i, p := range sortedParts {
+		if p.Message == nil {
+			log.Error("A file part is missing after sorting, indicating an upload failure for that part.", "missing_part_index", i)
+			http.Error(w, "A file part failed to upload or process correctly", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	parsedMessages := database.VFSFile{
@@ -180,29 +222,25 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		FileSize:      int32(fileSize),
 		FileTimestamp: time.Now().Unix(),
 		FileGuildID:   guildIdToInt,
-
-		FileParts: make([]database.VFSFilePart, len(sortedParts)),
+		FileParts:     make([]database.VFSFilePart, len(sortedParts)),
 	}
 
-	currentSize := 0
-
+	currentSizeOffset := 0
 	for i, msg := range sortedParts {
 		messageIdToInt, _ := strconv.Atoi(msg.Message.ID)
 		channelIdToInt, _ := strconv.Atoi(msg.Message.ChannelID)
 
 		parsedMessages.FileParts[i] = database.VFSFilePart{
-			PartID: int64(messageIdToInt),
-
+			PartID:            int64(messageIdToInt),
 			PartChannelID:     int64(channelIdToInt),
 			PartAttachmentURL: strings.Split(msg.Message.Attachments[0].URL, "https://cdn.discordapp.com/attachments/")[1],
 			PartSize:          int32(msg.Size),
-			PartIndex:         int32(currentSize),
+			PartIndex:         int32(currentSizeOffset),
 		}
-
-		currentSize += msg.Size
+		currentSizeOffset += msg.Size
 	}
 
-	if err := database.AppendVFSFile(r.Header.Get("X-Guild-ID"), parsedMessages); err != nil {
+	if err := database.AppendVFSFile(parsedMessages); err != nil {
 		log.Error("Failed to append VFS file", "error", err)
 		http.Error(w, "Failed to append VFS file", http.StatusInternalServerError)
 

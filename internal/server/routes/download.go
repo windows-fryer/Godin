@@ -20,15 +20,14 @@ type VFSReadSeeker struct {
 	client   *http.Client
 	off      int64
 	size     int64
-	buf      []byte // decoded data of current part
-	bufStart int64  // file offset of buf[0]
+	buf      []byte
+	bufStart int64
 }
 
 func newVFSReadSeeker(client *http.Client, parts []database.VFSFilePart, size int64) *VFSReadSeeker {
 	return &VFSReadSeeker{parts: parts, client: client, size: size}
 }
 
-// Seek sets the read offset
 func (v *VFSReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	var newOff int64
 
@@ -52,13 +51,11 @@ func (v *VFSReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	return v.off, nil
 }
 
-// Read will pull exactly len(p) bytes (or less at EOF) from the appropriate part(s)
 func (v *VFSReadSeeker) Read(p []byte) (int, error) {
 	if v.off >= v.size {
 		return 0, io.EOF
 	}
 
-	// refill buffer if missing or outside current part
 	if v.buf == nil || v.off < v.bufStart || v.off >= v.bufStart+int64(len(v.buf)) {
 		var dp database.VFSFilePart
 		var start int64

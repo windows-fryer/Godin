@@ -173,7 +173,7 @@ func DeleteVFSFiles(guildID int) error {
 	return nil
 }
 
-func AppendVFSFile(fileID string, file VFSFile) error {
+func AppendVFSFile(file VFSFile) error {
 	collection := MongoSession.Database("godin").Collection("files")
 
 	_, err := collection.InsertOne(MongoContext, file)
