@@ -20,6 +20,7 @@ import (
 )
 
 const chunkSize = 10485316 //Discord said so
+const concurrentUploads = 5
 
 var chunkBufferPool = sync.Pool{
 	New: func() any {
@@ -28,8 +29,8 @@ var chunkBufferPool = sync.Pool{
 	},
 }
 
-func getWebhook(guildId int) (map[string]any, error) {
-	directories, err := database.GetVFSDirectories(guildId)
+func getWebhook(guildId int) (*database.GuildChannel, error) {
+	directories, err := database.GetGuild(guildId)
 
 	if err != nil {
 		log.Error("Failed to get VFS directories", "error", err)
@@ -37,10 +38,10 @@ func getWebhook(guildId int) (map[string]any, error) {
 		return nil, err
 	}
 
-	directoryCount := len(directories)
+	directoryCount := len(directories.VFSChannels)
 	randomIndex := rand.IntN(directoryCount)
 
-	return directories[randomIndex], nil
+	return &directories.VFSChannels[randomIndex], nil
 }
 
 func uploadToWebhook(webhookId string, webhookToken string, data []byte) (*discordgo.Message, error) {
@@ -53,6 +54,8 @@ func uploadToWebhook(webhookId string, webhookToken string, data []byte) (*disco
 }
 
 func UploadHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
 	log.Info("Received upload request", "method", r.Method, "url", r.URL.String())
 
 	if !strings.HasPrefix(r.URL.Path, "/v1/upload/") {
@@ -97,10 +100,13 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	sem := make(chan struct{}, concurrentUploads)
+
 	type WebhookMessage struct {
-		Message *discordgo.Message
-		Part    int
-		Size    int
+		Message   *discordgo.Message
+		Part      int
+		Size      int
+		Timestamp int
 	}
 
 	messages := make([]WebhookMessage, 0)
@@ -114,10 +120,11 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		curOffset := 0
 
 		for {
-			n, readErr := part.Read(buffer[curOffset:])
-			if n > 0 {
-				curOffset += n
-				fileSize += n
+			bytesRead, readErr := part.Read(buffer[curOffset:])
+
+			if bytesRead > 0 {
+				curOffset += bytesRead
+				fileSize += bytesRead
 			}
 
 			if readErr != nil {
@@ -137,7 +144,7 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			if n == 0 {
+			if bytesRead == 0 {
 				break
 			}
 		}
@@ -155,21 +162,25 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 		log.Info("Processing chunk", "part_index", partNum, "size", len(payload))
 
-		webhookDocument, whErr := getWebhook(guildIdToInt)
-		if whErr != nil {
-			log.Error("Failed to get webhook URL", "error", whErr)
+		webhookDocument, err := getWebhook(guildIdToInt)
+
+		if err != nil {
+			log.Error("Failed to get webhook URL", "error", err)
 			http.Error(w, "Failed to get webhook URL", http.StatusInternalServerError)
-			return // Abort upload
+
+			return
 		}
 
 		for i := range payload {
 			payload[i] ^= 0x55
 		}
 
+		sem <- struct{}{}
 		wg.Add(1)
 
 		go func(webhookID int64, webhookToken string, dataToSend []byte, partNum int) {
 			defer wg.Done()
+			defer func() { <-sem }()
 
 			webhookIDtoStr := strconv.FormatInt(webhookID, 10)
 			msg, uploadErr := uploadToWebhook(webhookIDtoStr, webhookToken, dataToSend)
@@ -181,11 +192,11 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			mu.Lock()
-			messages = append(messages, WebhookMessage{Message: msg, Part: partNum, Size: len(dataToSend)})
+			messages = append(messages, WebhookMessage{Message: msg, Part: partNum, Size: len(dataToSend), Timestamp: int(time.Now().Unix())})
 			mu.Unlock()
 
 			log.Info("Chunk uploaded successfully", "part_num", partNum, "size", len(dataToSend), "webhook_id", webhookID)
-		}(webhookDocument["webhook_id"].(int64), webhookDocument["webhook_token"].(string), payload, partNum)
+		}(webhookDocument.WebhookID, webhookDocument.WebhookToken, payload, partNum)
 	}
 
 	wg.Wait()
@@ -226,6 +237,7 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentSizeOffset := 0
+
 	for i, msg := range sortedParts {
 		messageIdToInt, _ := strconv.Atoi(msg.Message.ID)
 		channelIdToInt, _ := strconv.Atoi(msg.Message.ChannelID)
@@ -236,11 +248,13 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 			PartAttachmentURL: strings.Split(msg.Message.Attachments[0].URL, "https://cdn.discordapp.com/attachments/")[1],
 			PartSize:          uint64(msg.Size),
 			PartIndex:         uint64(currentSizeOffset),
+			PartTimestamp:     int64(msg.Timestamp),
 		}
+
 		currentSizeOffset += msg.Size
 	}
 
-	if err := database.AppendVFSFile(parsedMessages); err != nil {
+	if err := database.AppendVFSFile(&parsedMessages); err != nil {
 		log.Error("Failed to append VFS file", "error", err)
 		http.Error(w, "Failed to append VFS file", http.StatusInternalServerError)
 
@@ -251,4 +265,5 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(parsedMessages.FileID))
 
 	log.Info("Upload completed successfully", "guild_id", guildIdToInt, "file_id", parsedMessages.FileID, "file_size", fileSize)
+	log.Info("Upload duration", "duration", time.Since(start).String(), "file_size", fileSize, "file_parts", totalParts)
 }

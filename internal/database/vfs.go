@@ -2,34 +2,29 @@ package database
 
 import (
 	"fmt"
-	"strconv"
 )
 
-func guildIdToInt(guildID string) (int, error) {
-	intGuildID, err := strconv.Atoi(guildID)
-
-	if err != nil {
-		return 0, fmt.Errorf("invalid guild ID: %w", err)
-	}
-
-	return intGuildID, nil
+type Guild struct {
+	GuildID     int            `bson:"_id"`
+	VFSChannels []GuildChannel `bson:"vfs_channels"`
 }
 
-func deleteIfExists(guildID string) error {
-	guildIdToInt, err := guildIdToInt(guildID)
+type GuildChannel struct {
+	ChannelID int64 `bson:"_id"`
 
-	if err != nil {
-		return err
-	}
+	WebhookID    int64  `bson:"webhook_id"`
+	WebhookToken string `bson:"webhook_token"`
+}
 
-	if err := DeleteVFSFiles(guildIdToInt); err != nil {
+func deleteIfExists(guild *Guild) error {
+	if err := DeleteVFSFiles(guild.GuildID); err != nil {
 		return fmt.Errorf("failed to delete existing VFS files: %w", err)
 	}
 
 	collection := MongoSession.Database("godin").Collection("guilds")
 
-	_, err = collection.DeleteOne(MongoContext, map[string]any{
-		"_id": guildIdToInt,
+	_, err := collection.DeleteOne(MongoContext, map[string]any{
+		"_id": guild.GuildID,
 	})
 
 	if err != nil {
@@ -39,22 +34,12 @@ func deleteIfExists(guildID string) error {
 	return nil
 }
 
-func CreateGuild(guildID string) error {
-	guildIdToInt, err := guildIdToInt(guildID)
-
-	if err != nil {
-		return err
-	}
-
+func CreateGuild(guild *Guild) error {
 	collection := MongoSession.Database("godin").Collection("guilds")
 
-	deleteIfExists(guildID)
+	deleteIfExists(guild)
 
-	_, err = collection.InsertOne(MongoContext, map[string]any{
-		"_id": guildIdToInt,
-
-		"vfs_channels": []any{},
-	})
+	_, err := collection.InsertOne(MongoContext, guild)
 
 	if err != nil {
 		return err
@@ -63,67 +48,37 @@ func CreateGuild(guildID string) error {
 	return nil
 }
 
-func AddVFSDirectories(guildID string, channels []map[string]any) error {
-	guildIdToInt, err := guildIdToInt(guildID)
-
-	if err != nil {
-		return err
-	}
-
+func UpdateGuild(guild *Guild) error {
 	collection := MongoSession.Database("godin").Collection("guilds")
 
-	_, err = collection.UpdateOne(MongoContext, map[string]any{
-		"_id": guildIdToInt,
-	}, map[string]any{
-		"$addToSet": map[string]any{
-			"vfs_channels": map[string]any{
-				"$each": channels,
-			},
-		},
-	})
+	_, err :=
+		collection.UpdateOne(MongoContext, map[string]any{
+			"_id": guild.GuildID,
+		}, map[string]any{
+			"$set": guild,
+		})
 
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update guild: %w", err)
 	}
 
 	return nil
 }
 
-func GetVFSDirectories(guildID int) ([]map[string]any, error) {
+func GetGuild(guildID int) (*Guild, error) {
 	collection := MongoSession.Database("godin").Collection("guilds")
 
-	var result struct {
-		VFSChannels []map[string]any `bson:"vfs_channels"`
-	}
+	var guild Guild
 
 	err := collection.FindOne(MongoContext, map[string]any{
 		"_id": guildID,
-	}).Decode(&result)
+	}).Decode(&guild)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get guild: %w", err)
 	}
 
-	return result.VFSChannels, nil
-}
-
-func GetVFSFiles(guildID int) ([]map[string]any, error) {
-	collection := MongoSession.Database("godin").Collection("files")
-
-	cursor, err := collection.Find(MongoContext, map[string]any{
-		"file_guild_id": guildID,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	var files []map[string]any
-	if err := cursor.All(MongoContext, &files); err != nil {
-		return nil, err
-	}
-
-	return files, nil
+	return &guild, nil
 }
 
 type VFSFilePart struct {
@@ -132,6 +87,7 @@ type VFSFilePart struct {
 	PartSize          uint64 `bson:"part_size"`
 	PartChannelID     int64  `bson:"channel_id"`
 	PartIndex         uint64 `bson:"part_index"`
+	PartTimestamp     int64  `bson:"part_timestamp"`
 }
 
 type VFSFile struct {
@@ -173,10 +129,26 @@ func DeleteVFSFiles(guildID int) error {
 	return nil
 }
 
-func AppendVFSFile(file VFSFile) error {
+func AppendVFSFile(file *VFSFile) error {
 	collection := MongoSession.Database("godin").Collection("files")
 
 	_, err := collection.InsertOne(MongoContext, file)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func UpdateVFSFile(file *VFSFile) error {
+	collection := MongoSession.Database("godin").Collection("files")
+
+	_, err := collection.UpdateOne(MongoContext, map[string]any{
+		"_id": file.FileID,
+	}, map[string]any{
+		"$set": file,
+	})
 
 	if err != nil {
 		return err

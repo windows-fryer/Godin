@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/godin/internal/database"
+	"github.com/godin/internal/discord"
 )
 
 type VFSReadSeeker struct {
@@ -112,6 +113,8 @@ func (v *VFSReadSeeker) Read(p []byte) (int, error) {
 }
 
 func DownloadHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
 	if !strings.HasPrefix(r.URL.Path, "/v1/download/") {
 		http.Error(w, "Invalid URL path", http.StatusBadRequest)
 		log.Error("Invalid URL path", "path", r.URL.Path)
@@ -134,6 +137,8 @@ func DownloadHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Info("Received download request", "file_id", fileId, "method", r.Method, "url", r.URL.String())
 
+	discord.UpdateMessageAttachments(fileId)
+
 	fileDocument, err := database.GetVFSFile(fileId)
 
 	if err != nil {
@@ -154,6 +159,7 @@ func DownloadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	escaped := url.PathEscape(fileDocument.FileName)
 
@@ -178,4 +184,6 @@ func DownloadHandler(w http.ResponseWriter, r *http.Request) {
 	modTime := time.Unix(fileDocument.FileTimestamp, 0)
 
 	http.ServeContent(w, r, fileDocument.FileName, modTime, reader)
+
+	log.Info("File served", "file_id", fileId, "file_name", fileDocument.FileName, "size", fileDocument.FileSize, "duration", time.Since(start).String())
 }

@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/charmbracelet/log"
 	"github.com/godin/internal/database"
 	"github.com/godin/internal/discord/commands"
 )
@@ -21,6 +22,11 @@ var CreateGuildCommand = &discordgo.ApplicationCommand{
 		Options: []*discordgo.ApplicationCommandOption{{
 			Name:        "channel_count",
 			Description: "Number of channels to create",
+			Type:        discordgo.ApplicationCommandOptionInteger,
+			Required:    false,
+		}, {
+			Name:        "webhook_count",
+			Description: "Number of webhooks to create in each channel",
 			Type:        discordgo.ApplicationCommandOptionInteger,
 			Required:    false,
 		}},
@@ -45,43 +51,44 @@ func deleteChannels(s *discordgo.Session, guildID string) error {
 	return nil
 }
 
-func createChannels(s *discordgo.Session, guildID string, count int) error {
-	createdChannels := make([]map[string]any, count)
+func createChannels(s *discordgo.Session, guildID string, channelCount int, webhookCount int) ([]database.GuildChannel, error) {
+	createdChannels := make([]database.GuildChannel, channelCount*webhookCount)
 
-	for i := range count {
+	for i := range channelCount {
 		channel, err := s.GuildChannelCreate(guildID, "vfs-"+strconv.Itoa(i), discordgo.ChannelTypeGuildText)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		webhook, err := s.WebhookCreate(channel.ID, "Godin VFS", "")
+		for j := range webhookCount {
+			webhook, err := s.WebhookCreate(channel.ID, "Godin VFS", "")
 
-		if err != nil {
-			return err
-		}
+			if err != nil {
+				return nil, err
+			}
 
-		channelIDInt, err := strconv.Atoi(channel.ID)
-		if err != nil {
-			return err
-		}
-		webhookIDInt, err := strconv.Atoi(webhook.ID)
-		if err != nil {
-			return err
-		}
+			channelIDInt, err := strconv.Atoi(channel.ID)
 
-		createdChannels[i] = map[string]any{
-			"_id":           channelIDInt,
-			"webhook_id":    webhookIDInt,
-			"webhook_token": webhook.Token,
+			if err != nil {
+				return nil, err
+			}
+
+			webhookIDInt, err := strconv.Atoi(webhook.ID)
+
+			if err != nil {
+				return nil, err
+			}
+
+			createdChannels[i*webhookCount+j] = database.GuildChannel{
+				ChannelID:    int64(channelIDInt),
+				WebhookID:    int64(webhookIDInt),
+				WebhookToken: webhook.Token,
+			}
 		}
 	}
 
-	if err := database.AddVFSDirectories(guildID, createdChannels); err != nil {
-		return err
-	}
-
-	return nil
+	return createdChannels, nil
 }
 
 func CreateGuild(s *discordgo.Session, i *discordgo.InteractionCreate) error {
@@ -99,14 +106,33 @@ func CreateGuild(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 		channelCount = int(option.IntValue())
 	}
 
-	if err := database.CreateGuild(i.GuildID); err != nil {
-		commands.InteractionFailed(s, i, "Failed to create guild!")
+	webhookCount := 5
+
+	if option := i.ApplicationCommandData().GetOption("create").GetOption("webhook_count"); option != nil {
+		webhookCount = int(option.IntValue())
+	}
+
+	channels, err := createChannels(s, i.GuildID, channelCount, webhookCount)
+
+	if err != nil {
+		commands.InteractionFailed(s, i, "Failed to create channels and webhooks: "+err.Error())
 
 		return err
 	}
 
-	if err := createChannels(s, i.GuildID, channelCount); err != nil {
-		commands.InteractionFailed(s, i, "Failed to create channels!")
+	guildIDToInt, _ := strconv.Atoi(i.GuildID)
+
+	log.Info("Creating new guild", "channels", channels)
+
+	newGuild := &database.Guild{
+		GuildID:     guildIDToInt,
+		VFSChannels: channels,
+	}
+
+	if err := database.CreateGuild(newGuild); err != nil {
+		commands.InteractionFailed(s, i, "Failed to create guild!")
+
+		return err
 	}
 
 	commands.InteractionSuccess(s, i, "Guild created successfully!")
