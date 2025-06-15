@@ -8,15 +8,18 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/joho/godotenv"
+	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/internal/server"
 )
 
 var serviceStartCallbacks = map[string]func(){
-	"server": server.Start,
+	"server":   server.Start,
+	"database": database.Start,
 }
 
 var serviceStopCallbacks = map[string]func(){
-	"server": server.Stop,
+	"server":   server.Stop,
+	"database": database.Stop,
 }
 
 // startServices will initialize and start all services that are registered in the serviceStartCallbacks map.
@@ -26,8 +29,6 @@ func startServices() {
 
 		go start()
 	}
-
-	glog.Info("All services started successfully.")
 }
 
 // stopServices will gracefully shut down any services that need to be stopped before the application exits.
@@ -37,8 +38,6 @@ func stopServices() {
 
 		stop()
 	}
-
-	glog.Info("All services stopped successfully.")
 }
 
 // awaitShutdownSignal listens for termination signals and blocks until one is received.

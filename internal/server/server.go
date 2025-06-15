@@ -10,11 +10,12 @@ import (
 
 func initializeRoutes() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeErrorResponse(w, http.StatusNotFound, "Route Not Found", "The requested route was not handleds.")
+		routes.WriteErrorResponse(w, http.StatusNotFound, "Route Not Found", "The requested route was not handled.")
 	})
 
-	http.HandleFunc("/v1/upload", routes.UploadHandler)
-	http.HandleFunc("/v1/download", routes.DownloadHandler)
+	http.HandleFunc("/v1/upload/", routes.UploadHandler)
+	http.HandleFunc("/v1/download/", routes.DownloadHandler)
+	http.HandleFunc("/v1/authorize/", routes.AuthorizeHandler)
 }
 
 // Initialize the server package by registering the routes.
@@ -37,5 +38,4 @@ func Start() {
 	}
 }
 
-func Stop() {
-}
+func Stop() {}

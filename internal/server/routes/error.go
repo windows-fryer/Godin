@@ -1,4 +1,4 @@
-package server
+package routes
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 )
 
 // writeErrorResponse writes a JSON error response to the provided http.ResponseWriter.
-func writeErrorResponse(w http.ResponseWriter, statusCode int, err string, message string) {
+func WriteErrorResponse(w http.ResponseWriter, statusCode int, err string, message string) {
 	w.Header().Set("Content-Type", "application/json")
 
 	w.WriteHeader(statusCode)
