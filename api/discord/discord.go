@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"net/http"
 	"os"
 	"time"
 
@@ -121,54 +120,4 @@ func (service *DiscordAPIService) Stop() {
 	if err := service.discordClient.Close(); err != nil {
 		glog.Errorf("Error closing Discord session: %v", err)
 	}
-}
-
-func (service *DiscordAPIService) CreateSession(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("CreateSession endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) GetSession(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("GetSession endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) DeleteSession(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("DeleteSession endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) UploadFile(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("UploadFile endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) ListFiles(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("ListFiles endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) DownloadFile(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("DownloadFile endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) DeleteFile(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("DeleteFile endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) CreateService(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("CreateService endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) GetService(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("GetService endpoint used")
-	return nil
-}
-
-func (service *DiscordAPIService) DeleteService(w http.ResponseWriter, r *http.Request) error {
-	glog.V(2).Info("DeleteService endpoint used")
-	return nil
 }

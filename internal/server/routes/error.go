@@ -7,7 +7,6 @@ import (
 	"github.com/golang/glog"
 )
 
-// writeErrorResponse writes a JSON error response to the provided http.ResponseWriter.
 func WriteErrorResponse(w http.ResponseWriter, statusCode int, err string, message string) {
 	w.Header().Set("Content-Type", "application/json")
 
