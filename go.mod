@@ -7,8 +7,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.16
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.19.2
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.43.3
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/golang/glog v1.2.5
+	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
+	github.com/wordgen/wordgen v0.4.0
+	golang.org/x/text v0.16.0
 )
 
 require (
@@ -25,7 +29,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.30.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.21 // indirect
 	github.com/aws/smithy-go v1.22.2 // indirect
-	github.com/bwmarrin/discordgo v0.29.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b // indirect
 	golang.org/x/sys v0.0.0-20201119102817-f84b799fce68 // indirect

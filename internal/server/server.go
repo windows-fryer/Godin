@@ -13,9 +13,9 @@ func initializeRoutes() {
 		routes.WriteErrorResponse(w, http.StatusNotFound, "Route Not Found", "The requested route was not handled.")
 	})
 
-	http.HandleFunc("/v1/upload/", routes.UploadHandler)
-	http.HandleFunc("/v1/download/", routes.DownloadHandler)
-	http.HandleFunc("/v1/authorize/", routes.AuthorizeHandler)
+	http.HandleFunc("/v1/file/", routes.FileHandler)
+	http.HandleFunc("/v1/session/", routes.SessionHandler)
+	http.HandleFunc("/v1/service/", routes.ServiceHandler)
 }
 
 // Initialize the server package by registering the routes.

@@ -8,39 +8,38 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/joho/godotenv"
-	"wednesday.wtf/godin/internal/database"
-	"wednesday.wtf/godin/internal/server"
+	"wednesday.wtf/godin/api/daemon"
+	"wednesday.wtf/godin/api/service"
 )
 
-var serviceStartCallbacks = map[string]func(){
-	"server":   server.Start,
-	"database": database.Start,
-}
-
-var serviceStopCallbacks = map[string]func(){
-	"server":   server.Stop,
-	"database": database.Stop,
-}
-
-// startServices will initialize and start all services that are registered in the serviceStartCallbacks map.
 func startServices() {
-	for service, start := range serviceStartCallbacks {
-		glog.Infof("Starting service: %s", service)
+	for name, service := range daemon.Daemons {
+		glog.Infof("Starting daemon: %s", name)
 
-		go start()
+		go service.Start()
+	}
+
+	for name, cdnService := range service.CDNServices {
+		glog.Infof("Starting CDN service: %s", name)
+
+		go cdnService.Start()
 	}
 }
 
-// stopServices will gracefully shut down any services that need to be stopped before the application exits.
 func stopServices() {
-	for service, stop := range serviceStopCallbacks {
-		glog.Infof("Stopping service: %s", service)
+	for name, service := range daemon.Daemons {
+		glog.Infof("Stopping daemon: %s", name)
 
-		stop()
+		service.Stop()
+	}
+
+	for name, cdnService := range service.CDNServices {
+		glog.Infof("Stopping CDN service: %s", name)
+
+		cdnService.Stop()
 	}
 }
 
-// awaitShutdownSignal listens for termination signals and blocks until one is received.
 func awaitShutdownSignal() {
 	killSignal := make(chan os.Signal, 1)
 
