@@ -50,14 +50,15 @@ Godin follows a modular, multi-service architecture designed for scalability and
 
 - Go 1.24.3 or higher
 - Discord Bot Token
+- PostgreSQL database (optional, for database features)
 - Environment configuration
 
 ### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/godin.git
-   cd godin
+   git clone <repository-url>
+   cd Godin-Next
    ```
 
 2. **Install dependencies**
@@ -151,15 +152,19 @@ go build -o godin cmd/godin/main.go
 ### Project Structure
 
 ```
-godin/
+Godin-Next/
 ├── api/
 │   ├── daemon/          # Service registry and management
 │   ├── discord/         # Discord CDN integration
+│   │   ├── file/        # File operation handlers
+│   │   ├── session/     # Session management handlers
+│   │   └── service/     # Service operation handlers
 │   └── service/         # CDN service interfaces
 ├── cmd/
 │   └── godin/           # Main application entry point
 ├── internal/
-│   ├── database/        # Database layer
+│   ├── database/        # Database layer (PostgreSQL)
+│   ├── resource/        # Resource name generation
 │   └── server/          # HTTP server and routes
 └── log/                 # Application logs
 ```
@@ -167,10 +172,12 @@ godin/
 ### Key Dependencies
 
 - **Discord API**: `github.com/bwmarrin/discordgo` - Discord bot integration
-- **AWS SDK**: `github.com/aws/aws-sdk-go-v2` - DynamoDB support
 - **Logging**: `github.com/golang/glog` - Structured logging
 - **Environment**: `github.com/joho/godotenv` - Environment variable management
+- **PostgreSQL**: `github.com/lib/pq` - Database driver
+- **UUID Generation**: `github.com/google/uuid` - Unique identifier generation
 - **Word Generation**: `github.com/wordgen/wordgen` - Random resource naming
+- **Text Processing**: `golang.org/x/text` - Text manipulation utilities
 
 ### Running Tests
 
@@ -209,9 +216,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- 📖 [Documentation](https://github.com/yourusername/godin/wiki)
-- 🐛 [Issue Tracker](https://github.com/yourusername/godin/issues)
-- 💬 [Discussions](https://github.com/yourusername/godin/discussions)
+- 📖 Documentation - See CLAUDE.md for development guidance
+- 🐛 Issue Tracker - Create issues for bugs and feature requests
+- 💬 Community - Join discussions for support and collaboration
 
 ## 🙏 Acknowledgments
 
