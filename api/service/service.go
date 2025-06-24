@@ -6,25 +6,13 @@ import (
 	"wednesday.wtf/godin/api/discord"
 )
 
-type CDNService interface {
+type CDNBase interface {
 	Start()
 
 	Stop()
+}
 
-	CreateSession(w http.ResponseWriter, r *http.Request) error
-
-	GetSession(w http.ResponseWriter, r *http.Request) error
-
-	DeleteSession(w http.ResponseWriter, r *http.Request) error
-
-	UploadFile(w http.ResponseWriter, r *http.Request) error
-
-	ListFiles(w http.ResponseWriter, r *http.Request) error
-
-	DownloadFile(w http.ResponseWriter, r *http.Request) error
-
-	DeleteFile(w http.ResponseWriter, r *http.Request) error
-
+type CDNService interface {
 	CreateService(w http.ResponseWriter, r *http.Request) error
 
 	GetService(w http.ResponseWriter, r *http.Request) error
@@ -32,6 +20,31 @@ type CDNService interface {
 	DeleteService(w http.ResponseWriter, r *http.Request) error
 }
 
-var CDNServices = map[string]CDNService{
-	"eris": &discord.Service,
+type CDNFile interface {
+	UploadFile(w http.ResponseWriter, r *http.Request) error
+
+	ListFiles(w http.ResponseWriter, r *http.Request) error
+
+	DownloadFile(w http.ResponseWriter, r *http.Request) error
+
+	DeleteFile(w http.ResponseWriter, r *http.Request) error
+}
+
+type CDNSession interface {
+	CreateSession(w http.ResponseWriter, r *http.Request) error
+
+	GetSession(w http.ResponseWriter, r *http.Request) error
+
+	DeleteSession(w http.ResponseWriter, r *http.Request) error
+}
+
+type CDNAPI interface {
+	CDNBase
+	CDNService
+	CDNFile
+	CDNSession
+}
+
+var CDNServices = map[string]CDNAPI{
+	"eris": &discord.Discord,
 }
