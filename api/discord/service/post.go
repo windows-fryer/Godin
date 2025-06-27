@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/golang/glog"
 	"github.com/google/uuid"
 	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/internal/resource"
@@ -61,7 +60,9 @@ func createChannels(tx *sql.Tx, discordClient *discordgo.Session, guildID string
 			return err
 		}
 
-		_, err = tx.Exec(InsertChannelQuery, channel.ID, guildID)
+		if _, err := tx.Exec(InsertChannelQuery, channel.ID, guildID); err != nil {
+			return err
+		}
 
 		for range webhookCount {
 			webhook, err := discordClient.WebhookCreate(channel.ID, resource.GenerateResourceName("lower", 2), "")
@@ -70,7 +71,9 @@ func createChannels(tx *sql.Tx, discordClient *discordgo.Session, guildID string
 				return err
 			}
 
-			_, err = tx.Exec(InsertWebhookQuery, webhook.ID, channel.ID, webhook.Token)
+			if _, err := tx.Exec(InsertWebhookQuery, webhook.ID, channel.ID, webhook.Token); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -115,10 +118,6 @@ func createGuild(tx *sql.Tx, payload CreateServicePayload, serviceID string) err
 }
 
 func (service *DiscordAPIService) CreateService(w http.ResponseWriter, r *http.Request) error {
-	if r.Header.Get("Content-Type") != "application/json" {
-		return errors.New("invalid content type, expected application/json")
-	}
-
 	var payload CreateServicePayload
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -133,7 +132,7 @@ func (service *DiscordAPIService) CreateService(w http.ResponseWriter, r *http.R
 		return errors.New("bot_token is required")
 	}
 
-	tx, err := database.PostgresClient.Begin()
+	tx, err := database.PostgresClient.BeginTx(r.Context(), nil)
 
 	if err != nil {
 		return err
@@ -155,9 +154,5 @@ func (service *DiscordAPIService) CreateService(w http.ResponseWriter, r *http.R
 		ServiceID: serviceID,
 	}
 
-	if err := resource.GenerateJSONResponse(w, http.StatusCreated, response); err != nil {
-		glog.Errorf("Failed to write JSON response: %v", err)
-	}
-
-	return nil
+	return resource.GenerateJSONResponse(w, http.StatusCreated, response)
 }

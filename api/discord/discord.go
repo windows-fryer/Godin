@@ -6,13 +6,12 @@ import (
 	"wednesday.wtf/godin/api/discord/session"
 )
 
-type DiscordAPIBase struct {
-}
+type DiscordAPIBase struct{}
 
 var Service DiscordAPIBase = DiscordAPIBase{}
 
 func (service *DiscordAPIBase) Start() {
-
+	session.ClearExpiredSessions()
 }
 
 func (service *DiscordAPIBase) Stop() {
