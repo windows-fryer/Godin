@@ -2,7 +2,7 @@
 
 > A powerful Discord CDN API service built with Go, providing seamless file and session management through Discord's infrastructure.
 
-[![Go Version](https://img.shields.io/badge/Go-1.24.3-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Integration-7289da.svg)](https://discord.com/)
 
@@ -18,37 +18,37 @@
 
 ## 🏗️ Architecture
 
-Godin follows a modular, multi-service architecture designed for scalability and maintainability:
+Godin is composed of loosely-coupled layers that can be scaled or replaced independently.  At a high level, control flows from the HTTP surface down to the infrastructure adapters:
 
 ```
-┌─────────────────┐    ┌─────────────────┐
-│   Main Process  │    │   HTTP Server   │
-│   (cmd/godin)   │────│ (internal/srv)  │
-└─────────────────┘    └─────────────────┘
-         │                       │
-         │              ┌─────────────────┐
-         │              │   API Routes    │
-         │              │   - /v1/file/   │
-         │              │   - /v1/session/│
-         │              │   - /v1/service/│
-         │              └─────────────────┘
-         │
-┌─────────────────┐    ┌─────────────────┐
-│ Daemon Manager  │    │ Discord Service │
-│ (api/daemon)    │────│ (api/discord)   │
-└─────────────────┘    └─────────────────┘
-         │
-┌─────────────────┐
-│ Database Layer  │
-│ (internal/db)   │
-└─────────────────┘
+┌────────────────────────────┐
+│        cmd/godin           │
+│  Application entry point   │
+└─────────────┬──────────────┘
+              │ starts
+┌─────────────▼──────────────┐
+│        internal/server     │
+│  HTTP router & middleware  │
+└─────────────┬──────────────┘
+              │ delegates
+┌─────────────▼──────────────┐    ┌──────────────────────────┐
+│        api/daemon          │    │       api/discord        │
+│  Background task manager   │────│   Discord CDN adapter    │
+└─────────────┬──────────────┘    └──────────────────────────┘
+              │ accesses                              │
+┌─────────────▼──────────────┐               ┌────────▼────────┐
+│     internal/database      │               │internal/resource│
+│  Persistence & migrations  │               │ Name generation │
+└────────────────────────────┘               └─────────────────┘
 ```
+
+The ASCII diagram is intentionally opinionated: *vertical* flow shows synchronous request handling, while *horizontal* arrows represent asynchronous or background interactions.  Each rectangle maps directly to a top-level package in the repository, making it trivial to navigate from docs to code.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Go 1.24.3 or higher
+- Go 1.22 or newer
 - Discord Bot Token
 - PostgreSQL database (optional, for database features)
 - Environment configuration
@@ -216,9 +216,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- 📖 Documentation - See CLAUDE.md for development guidance
-- 🐛 Issue Tracker - Create issues for bugs and feature requests
-- 💬 Community - Join discussions for support and collaboration
+- 📖 Documentation – Consult the inline Go doc comments and the "Development" section above
+- 🐛 Issue Tracker – Create issues for bugs and feature requests
+- 💬 Discussions – Join the GitHub Discussions board for questions and ideas
 
 ## 🙏 Acknowledgments
 
