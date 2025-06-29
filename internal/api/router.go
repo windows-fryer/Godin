@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 
 type Router struct {
 	log      *zap.Logger
+	mux      *http.ServeMux
 	services map[string]cdn.Handler
 }
 
@@ -84,19 +86,30 @@ func (r *Router) dispatch(routeType string) middleware.Handler {
 	}
 }
 
-func (r *Router) RegisterHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("/v1/service/", middleware.Error(r.log, r.dispatch("service")))
-	mux.HandleFunc("/v1/session/", middleware.Error(r.log, r.dispatch("session")))
-	mux.HandleFunc("/v1/file/", middleware.Error(r.log, r.dispatch("file")))
+func (r *Router) createHandler(routeType string) {
+	r.mux.HandleFunc(fmt.Sprintf("/v1/%s/", routeType), middleware.Error(r.log, r.dispatch(routeType)))
 }
 
-func NewRouter(log *zap.Logger) *Router {
+func notFoundHandler(w http.ResponseWriter, r *http.Request) {
+	responder.RespondError(w, responder.NewError(http.StatusNotFound, "not found"))
+}
+
+func (r *Router) RegisterHandlers() {
+	r.mux.HandleFunc("/", notFoundHandler)
+
+	r.createHandler("service")
+	r.createHandler("session")
+	r.createHandler("file")
+}
+
+func NewRouter(log *zap.Logger, mux *http.ServeMux) *Router {
 	services := map[string]cdn.Handler{
 		"eris": eris.NewHandler(log),
 	}
 
 	return &Router{
 		log:      log,
+		mux:      mux,
 		services: services,
 	}
 }

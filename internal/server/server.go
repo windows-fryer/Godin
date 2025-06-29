@@ -18,9 +18,9 @@ type Server struct {
 
 func New(log *zap.Logger, config *config.Config) *Server {
 	mux := http.NewServeMux()
-	router := api.NewRouter(log)
+	router := api.NewRouter(log, mux)
 
-	router.RegisterHandlers(mux)
+	router.RegisterHandlers()
 
 	return &Server{
 		log:    log,
