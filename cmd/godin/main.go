@@ -3,6 +3,7 @@ package main
 import (
 	"go.uber.org/zap"
 	"wednesday.wtf/godin/internal/config"
+	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/internal/logger"
 	"wednesday.wtf/godin/internal/server"
 )
@@ -26,19 +27,25 @@ func createLogger(config *config.Config) (*zap.Logger, error) {
 }
 
 func main() {
-	config, err := createConfig()
+	cfg, err := createConfig()
 
 	if err != nil {
 		panic(err)
 	}
 
-	logger, err := createLogger(config)
+	logger, err := createLogger(cfg)
 
 	if err != nil {
 		panic(err)
 	}
 
-	srv := server.New(logger, config)
+	db, err := database.New(logger, cfg)
+
+	if err != nil {
+		panic(err)
+	}
+
+	srv := server.New(logger, db, cfg)
 
 	if err := srv.Start(); err != nil {
 		panic(err)

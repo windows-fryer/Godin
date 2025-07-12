@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -26,8 +27,14 @@ func setupConfigFile() {
 func setupConfigEnv() {
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("GODIN")
-	viper.BindEnv("development", "DEVELOPMENT")
-	viper.BindEnv("postgres_connection_string", "POSTGRES_CONNECTION_STRING")
+
+	if err := viper.BindEnv("development", "DEVELOPMENT"); err != nil {
+		panic(err)
+	}
+
+	if err := viper.BindEnv("postgres_connection_string", "POSTGRES_CONNECTION_STRING"); err != nil {
+		panic(err)
+	}
 }
 
 func setupConfigDefaults() {
@@ -49,7 +56,9 @@ func New() (*Config, error) {
 	setupConfigDefaults()
 
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+
+		if !errors.As(err, &configFileNotFoundError) {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
 	}

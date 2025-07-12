@@ -13,6 +13,8 @@ func New(development bool) (*zap.Logger, error) {
 
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+
+		config.OutputPaths = []string{"stdout"}
 	} else {
 		config = zap.NewProductionConfig()
 

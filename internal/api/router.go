@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"wednesday.wtf/godin/internal/database"
 
 	"go.uber.org/zap"
 	"wednesday.wtf/godin/internal/api/handler/eris"
@@ -16,6 +17,7 @@ type Router struct {
 	log      *zap.Logger
 	mux      *http.ServeMux
 	services map[string]cdn.Handler
+	db       *database.Database
 }
 
 func handleService(w http.ResponseWriter, r *http.Request, h cdn.Service) error {
@@ -102,13 +104,14 @@ func (r *Router) RegisterHandlers() {
 	r.createHandler("file")
 }
 
-func NewRouter(log *zap.Logger, mux *http.ServeMux) *Router {
+func NewRouter(log *zap.Logger, db *database.Database, mux *http.ServeMux) *Router {
 	services := map[string]cdn.Handler{
-		"eris": eris.NewHandler(log),
+		"eris": eris.NewHandler(log, db),
 	}
 
 	return &Router{
 		log:      log,
+		db:       db,
 		mux:      mux,
 		services: services,
 	}

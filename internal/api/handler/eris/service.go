@@ -1,9 +1,125 @@
 package eris
 
-import "net/http"
+import (
+	"database/sql"
+	"encoding/json"
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+	"net/http"
+	"strconv"
+	"wednesday.wtf/godin/internal/database"
+	"wednesday.wtf/godin/internal/discord"
+	"wednesday.wtf/godin/pkg/responder"
+)
+
+type createServiceRequest struct {
+	BotToken string `json:"bot_token"`
+
+	GuildID           int `json:"guild_id"`
+	GuildChannelCount int `json:"guild_channel_count"`
+	GuildWebhookCount int `json:"guild_webhook_count"`
+}
+
+type createServiceResponse struct {
+	ServiceID string `json:"service_id"`
+}
+
+func guildExists(db *database.Database, guildID int) bool {
+	var found bool
+
+	result := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM eris.guilds WHERE guild_id = $1)`, guildID)
+
+	err := result.Scan(&found)
+
+	if err != nil {
+		return false
+	}
+
+	return found
+}
 
 func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	request := createServiceRequest{}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		return err
+	}
+
+	h.log.Debug("Creating service", zap.Int("guild_id", request.GuildID), zap.String("bot_token", request.BotToken))
+
+	if ok := guildExists(h.db, request.GuildID); ok {
+		return responder.NewError(http.StatusBadRequest, "guild already exists")
+	}
+
+	client, err := discord.New(request.BotToken)
+
+	if err != nil {
+		return err
+	}
+
+	endpoints, err := client.InitializeGuild(strconv.Itoa(request.GuildID), request.GuildChannelCount, request.GuildWebhookCount)
+
+	if err != nil {
+		return err
+	}
+
+	h.log.Debug("Endpoints Created", zap.Any("endpoints", endpoints))
+
+	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
+		if _, err := tx.Exec(`INSERT INTO eris.guilds (guild_id) VALUES ($1)`, request.GuildID); err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	}); err != nil {
+		return err
+	}
+
+	serviceUUID := uuid.NewString()
+
+	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
+		if _, err := tx.Exec(`INSERT INTO eris.services (service_id, guild_id, bot_token) VALUES ($1, $2, $3)`, serviceUUID, request.GuildID, request.BotToken); err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	}); err != nil {
+		return err
+	}
+
+	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
+		channelsStmt, err := tx.Prepare(`INSERT INTO eris.channels (guild_id, channel_id) VALUES ($1, $2)`)
+
+		if err != nil {
+			return nil, err
+		}
+
+		webhooksStmt, err := tx.Prepare(`INSERT INTO eris.webhooks (webhook_id, channel_id, webhook_token) VALUES ($1, $2, $3)`)
+
+		if err != nil {
+			return nil, err
+		}
+
+		for channelID, webhooks := range endpoints {
+			if _, err := channelsStmt.Exec(request.GuildID, channelID); err != nil {
+				return nil, err
+			}
+
+			for _, webhookData := range webhooks {
+				if _, err = webhooksStmt.Exec(webhookData.ID, channelID, webhookData.Token); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return nil, nil
+	}); err != nil {
+		return err
+	}
+
+	return responder.Respond(w, http.StatusCreated, createServiceResponse{
+		ServiceID: serviceUUID,
+	})
 }
 
 func (h *Handler) GetService(w http.ResponseWriter, r *http.Request) error {

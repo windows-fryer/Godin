@@ -2,6 +2,7 @@ package responder
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -18,19 +19,31 @@ func NewError(code int, message string) *Error {
 	return &Error{Code: code, Message: message}
 }
 
-func Respond(w http.ResponseWriter, code int, data any) {
+func Respond(w http.ResponseWriter, code int, data any) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 
 	if data != nil {
-		json.NewEncoder(w).Encode(data)
+		err := json.NewEncoder(w).Encode(data)
+
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func RespondError(w http.ResponseWriter, err error) {
-	if e, ok := err.(*Error); ok {
-		Respond(w, e.Code, e)
+	var e *Error
+
+	if errors.As(err, &e) {
+		if err := Respond(w, e.Code, e); err != nil {
+			panic(err)
+		}
 	} else {
-		Respond(w, http.StatusInternalServerError, &Error{Message: err.Error()})
+		if err := Respond(w, http.StatusInternalServerError, NewError(http.StatusInternalServerError, "Internal Server Error")); err != nil {
+			panic(err)
+		}
 	}
 }
