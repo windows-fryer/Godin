@@ -20,40 +20,58 @@ type Router struct {
 	db       *database.Database
 }
 
-func handleService(w http.ResponseWriter, r *http.Request, h cdn.Service) error {
-	switch r.Method {
+func (r *Router) handleService(w http.ResponseWriter, req *http.Request, h cdn.Service) error {
+	switch req.Method {
 	case http.MethodPost:
-		return h.CreateService(w, r)
+		r.log.Debug("Creating service", zap.String("url", req.URL.String()))
+
+		return h.CreateService(w, req)
 	case http.MethodGet:
-		return h.GetService(w, r)
+		r.log.Debug("Getting service", zap.String("url", req.URL.String()))
+
+		return h.GetService(w, req)
 	case http.MethodDelete:
-		return h.DeleteService(w, r)
+		r.log.Debug("Deleting service", zap.String("url", req.URL.String()))
+
+		return h.DeleteService(w, req)
 	default:
 		return responder.NewError(http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-func handleSession(w http.ResponseWriter, r *http.Request, h cdn.Session) error {
-	switch r.Method {
+func (r *Router) handleSession(w http.ResponseWriter, req *http.Request, h cdn.Session) error {
+	switch req.Method {
 	case http.MethodPost:
-		return h.CreateSession(w, r)
+		r.log.Debug("Creating session", zap.String("url", req.URL.String()))
+
+		return h.CreateSession(w, req)
 	case http.MethodGet:
-		return h.GetSession(w, r)
+		r.log.Debug("Getting session", zap.String("url", req.URL.String()))
+
+		return h.GetSession(w, req)
 	case http.MethodDelete:
-		return h.DeleteSession(w, r)
+		r.log.Debug("Deleting session", zap.String("url", req.URL.String()))
+
+		return h.DeleteSession(w, req)
 	default:
 		return responder.NewError(http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-func handleFile(w http.ResponseWriter, r *http.Request, h cdn.File) error {
-	switch r.Method {
+func (r *Router) handleFile(w http.ResponseWriter, req *http.Request, h cdn.File) error {
+	switch req.Method {
 	case http.MethodPost:
-		return h.CreateFile(w, r)
+		r.log.Debug("Creating file", zap.String("url", req.URL.String()))
+
+		return h.CreateFile(w, req)
 	case http.MethodGet:
-		return h.GetFile(w, r)
+		r.log.Debug("Getting file", zap.String("url", req.URL.String()))
+
+		return h.GetFile(w, req)
 	case http.MethodDelete:
-		return h.DeleteFile(w, r)
+		r.log.Debug("Deleting file", zap.String("url", req.URL.String()))
+
+		return h.DeleteFile(w, req)
 	default:
 		return responder.NewError(http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -77,11 +95,11 @@ func (r *Router) dispatch(routeType string) middleware.Handler {
 
 		switch routeType {
 		case "service":
-			return handleService(w, req, handler)
+			return r.handleService(w, req, handler)
 		case "session":
-			return handleSession(w, req, handler)
+			return r.handleSession(w, req, handler)
 		case "file":
-			return handleFile(w, req, handler)
+			return r.handleFile(w, req, handler)
 		default:
 			return responder.NewError(http.StatusNotFound, "not found")
 		}

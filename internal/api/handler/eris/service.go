@@ -45,8 +45,6 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	h.log.Debug("Creating service", zap.Int("guild_id", request.GuildID), zap.String("bot_token", request.BotToken))
-
 	if ok := guildExists(h.db, request.GuildID); ok {
 		return responder.NewError(http.StatusBadRequest, "guild already exists")
 	}

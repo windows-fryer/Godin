@@ -2,9 +2,8 @@ package middleware
 
 import (
 	"errors"
-	"net/http"
-
 	"go.uber.org/zap"
+	"net/http"
 	"wednesday.wtf/godin/pkg/responder"
 )
 
@@ -12,9 +11,9 @@ type Handler func(w http.ResponseWriter, r *http.Request) error
 
 func Error(log *zap.Logger, next Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := next(w, r); err != nil {
-			var customErr *responder.Error
+		var customErr *responder.Error
 
+		if err := next(w, r); err != nil {
 			if errors.As(err, &customErr) {
 				log.Debug("Request failed",
 					zap.String("error", customErr.Message),
@@ -26,6 +25,7 @@ func Error(log *zap.Logger, next Handler) http.HandlerFunc {
 				log.Error("Request failed",
 					zap.Error(err),
 					zap.String("method", r.Method),
+					zap.String("url", r.URL.String()),
 				)
 			}
 

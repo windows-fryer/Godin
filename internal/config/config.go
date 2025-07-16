@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/spf13/viper"
 	"github.com/subosito/gotenv"
@@ -17,6 +18,12 @@ type Config struct {
 	ServerAddress string `mapstructure:"server_address"`
 }
 
+var configVars = map[string]any{
+	"development":                false,
+	"postgres_connection_string": "",
+	"server_address":             ":60000",
+}
+
 func setupConfigFile() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -24,24 +31,25 @@ func setupConfigFile() {
 	viper.AddConfigPath("./config")
 }
 
+func bindToEnv(input string) error {
+	return viper.BindEnv(input, strings.ToUpper(input))
+}
+
 func setupConfigEnv() {
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("GODIN")
 
-	if err := viper.BindEnv("development", "DEVELOPMENT"); err != nil {
-		panic(err)
-	}
-
-	if err := viper.BindEnv("postgres_connection_string", "POSTGRES_CONNECTION_STRING"); err != nil {
-		panic(err)
+	for envVar, _ := range configVars {
+		if err := bindToEnv(envVar); err != nil {
+			panic(err)
+		}
 	}
 }
 
 func setupConfigDefaults() {
-	viper.SetDefault("development", false)
-	viper.SetDefault("postgres_connection_string", "")
-	viper.SetDefault("server_address", ":60000")
-
+	for key, value := range configVars {
+		viper.SetDefault(key, value)
+	}
 }
 
 func New() (*Config, error) {
