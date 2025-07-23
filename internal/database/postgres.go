@@ -14,6 +14,10 @@ type Database struct {
 	config *config.Config
 }
 
+func clearExpiredSessions(db *sql.DB) error {
+	_, err := db.Exec(`DELETE FROM godin.eris.sessions WHERE expiration_time < NOW()`)
+}
+
 func New(log *zap.Logger, cfg *config.Config) (*Database, error) {
 	db, err := sql.Open("postgres", cfg.PostgresConnectionString)
 

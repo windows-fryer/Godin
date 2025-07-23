@@ -27,11 +27,9 @@ type createServiceResponse struct {
 func guildExists(db *database.Database, guildID int) bool {
 	var found bool
 
-	result := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM eris.guilds WHERE guild_id = $1)`, guildID)
+	res := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM godin.eris.guilds WHERE guild_id = $1)`, guildID)
 
-	err := result.Scan(&found)
-
-	if err != nil {
+	if err := res.Scan(&found); err != nil {
 		return false
 	}
 
@@ -64,7 +62,7 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 	h.log.Debug("Endpoints Created", zap.Any("endpoints", endpoints))
 
 	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
-		if _, err := tx.Exec(`INSERT INTO eris.guilds (guild_id) VALUES ($1)`, request.GuildID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO godin.eris.guilds (guild_id) VALUES ($1)`, request.GuildID); err != nil {
 			return nil, err
 		}
 
@@ -73,10 +71,10 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	serviceUUID := uuid.NewString()
+	serviceID := uuid.NewString()
 
 	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
-		if _, err := tx.Exec(`INSERT INTO eris.services (service_id, guild_id, bot_token) VALUES ($1, $2, $3)`, serviceUUID, request.GuildID, request.BotToken); err != nil {
+		if _, err := tx.Exec(`INSERT INTO godin.eris.services (service_id, guild_id, bot_token) VALUES ($1, $2, $3)`, serviceID, request.GuildID, request.BotToken); err != nil {
 			return nil, err
 		}
 
@@ -86,13 +84,13 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
-		channelsStmt, err := tx.Prepare(`INSERT INTO eris.channels (guild_id, channel_id) VALUES ($1, $2)`)
+		channelsStmt, err := tx.Prepare(`INSERT INTO godin.eris.channels (guild_id, channel_id) VALUES ($1, $2)`)
 
 		if err != nil {
 			return nil, err
 		}
 
-		webhooksStmt, err := tx.Prepare(`INSERT INTO eris.webhooks (webhook_id, channel_id, webhook_token) VALUES ($1, $2, $3)`)
+		webhooksStmt, err := tx.Prepare(`INSERT INTO godin.eris.webhooks (webhook_id, channel_id, webhook_token) VALUES ($1, $2, $3)`)
 
 		if err != nil {
 			return nil, err
@@ -116,7 +114,7 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return responder.Respond(w, http.StatusCreated, createServiceResponse{
-		ServiceID: serviceUUID,
+		ServiceID: serviceID,
 	})
 }
 

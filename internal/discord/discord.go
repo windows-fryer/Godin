@@ -92,3 +92,20 @@ func (c *Client) InitializeGuild(guildID string, channelCount int, webhookCount 
 
 	return endpoints, nil
 }
+
+func (c *Client) GuildUploadSize(guildID int) (int, error) {
+	guild, err := c.session.Guild(strconv.Itoa(guildID))
+
+	if err != nil {
+		return 0, err
+	}
+
+	switch guild.PremiumTier {
+	case discordgo.PremiumTier3:
+		return 100, nil
+	case discordgo.PremiumTier2:
+		return 50, nil
+	default:
+		return 10, nil
+	}
+}
