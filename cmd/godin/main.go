@@ -9,17 +9,17 @@ import (
 )
 
 func createConfig() (*config.Config, error) {
-	config, err := config.New()
+	c, err := config.New()
 
 	if err != nil {
 		return nil, err
 	}
 
-	if err := config.Validate(); err != nil {
+	if err := c.Validate(); err != nil {
 		return nil, err
 	}
 
-	return config, nil
+	return c, nil
 }
 
 func createLogger(config *config.Config) (*zap.Logger, error) {
@@ -33,19 +33,19 @@ func main() {
 		panic(err)
 	}
 
-	logger, err := createLogger(cfg)
+	log, err := createLogger(cfg)
 
 	if err != nil {
 		panic(err)
 	}
 
-	db, err := database.New(logger, cfg)
+	db, err := database.New(log, cfg)
 
 	if err != nil {
 		panic(err)
 	}
 
-	srv := server.New(logger, db, cfg)
+	srv := server.New(log, db, cfg)
 
 	if err := srv.Start(); err != nil {
 		panic(err)

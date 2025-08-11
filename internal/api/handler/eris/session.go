@@ -64,8 +64,6 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) error {
 		return responder.NewError(http.StatusBadRequest, "file_name is required")
 	}
 
-	h.log.Debug("Creating Session", zap.String("server_id", serviceID))
-
 	fileID := uuid.NewString()
 
 	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {

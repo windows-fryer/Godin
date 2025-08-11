@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"go.uber.org/zap"
+	"time"
 	"wednesday.wtf/godin/internal/config"
 
 	_ "github.com/lib/pq"
@@ -14,8 +15,28 @@ type Database struct {
 	config *config.Config
 }
 
-func clearExpiredSessions(db *sql.DB) error {
-	_, err := db.Exec(`DELETE FROM godin.eris.sessions WHERE expiration_time < NOW()`)
+func (d *Database) clearExpiredSessions() error {
+	if _, err := d.Transaction(func(d *Database, tx *sql.Tx) (*sql.Result, error) {
+		rows, err := tx.Exec(`DELETE FROM godin.eris.sessions WHERE expiration_time < NOW()`)
+
+		if err != nil {
+			return nil, err
+		}
+
+		rowsAffected, err := rows.RowsAffected()
+
+		if err != nil {
+			return nil, err
+		}
+
+		d.log.Debug("Cleaned expired sessions", zap.Int("rows_affected", int(rowsAffected)))
+
+		return nil, nil
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func New(log *zap.Logger, cfg *config.Config) (*Database, error) {
@@ -29,11 +50,25 @@ func New(log *zap.Logger, cfg *config.Config) (*Database, error) {
 		return nil, err
 	}
 
-	return &Database{
+	database := Database{
 		log:    log,
 		db:     db,
 		config: cfg,
-	}, nil
+	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := database.clearExpiredSessions(); err != nil {
+				panic(err)
+			}
+		}
+	}()
+
+	return &database, nil
 }
 
 func (d *Database) Close() error {
