@@ -2,8 +2,9 @@ package middleware
 
 import (
 	"errors"
-	"go.uber.org/zap"
 	"net/http"
+
+	"go.uber.org/zap"
 	"wednesday.wtf/godin/pkg/responder"
 )
 

@@ -10,6 +10,7 @@ type Service interface {
 
 type File interface {
 	CreateFile(w http.ResponseWriter, r *http.Request) error
+	PutFile(w http.ResponseWriter, r *http.Request) error
 	GetFile(w http.ResponseWriter, r *http.Request) error
 	DeleteFile(w http.ResponseWriter, r *http.Request) error
 }

@@ -3,10 +3,11 @@ package eris
 import (
 	"database/sql"
 	"encoding/json"
-	"github.com/google/uuid"
-	"go.uber.org/zap"
 	"net/http"
 	"strconv"
+
+	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/internal/discord"
 	"wednesday.wtf/godin/pkg/responder"
@@ -24,16 +25,28 @@ type createServiceResponse struct {
 	ServiceID string `json:"service_id"`
 }
 
-func guildExists(db *database.Database, guildID int) bool {
+func (h *Handler) guildExists(guildID int) bool {
 	var found bool
 
-	res := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM godin.eris.guilds WHERE guild_id = $1)`, guildID)
+	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM godin.eris.guilds WHERE guild_id = $1)`, guildID)
 
 	if err := res.Scan(&found); err != nil {
 		return false
 	}
 
 	return found
+}
+
+func (h *Handler) serviceExists(id string) (bool, error) {
+	var found bool
+
+	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM godin.eris.services WHERE service_id = $1)`, id)
+
+	if err := res.Scan(&found); err != nil {
+		return false, err
+	}
+
+	return found, nil
 }
 
 func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
@@ -43,7 +56,7 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if ok := guildExists(h.db, request.GuildID); ok {
+	if ok := h.guildExists(request.GuildID); ok {
 		return responder.NewError(http.StatusBadRequest, "guild already exists")
 	}
 

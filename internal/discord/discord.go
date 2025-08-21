@@ -1,9 +1,11 @@
 package discord
 
 import (
+	"io"
+	"strconv"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/google/uuid"
-	"strconv"
 )
 
 type Client struct {
@@ -108,4 +110,25 @@ func (c *Client) GuildUploadSize(guildID int) (int, error) {
 	default:
 		return 10, nil
 	}
+}
+
+type FileResponse struct {
+	messageID      string
+	attachmentURL  string
+	attachmentSize int
+}
+
+func (c *Client) UploadChunk(webhookID string, webhookToken string, r *io.Reader) (*FileResponse, error) {
+	_, err := c.session.WebhookExecute(webhookID, webhookToken, true, &discordgo.WebhookParams{
+		Files: []*discordgo.File{{
+			Name:   uuid.NewString(),
+			Reader: *r,
+		}},
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, nil
 }

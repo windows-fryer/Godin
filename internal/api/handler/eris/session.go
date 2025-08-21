@@ -3,35 +3,15 @@ package eris
 import (
 	"database/sql"
 	"encoding/json"
-	"github.com/google/uuid"
 	"net/http"
 	"time"
-	"wednesday.wtf/godin/internal/database"
-	"wednesday.wtf/godin/internal/discord"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/pkg/responder"
 	"wednesday.wtf/godin/pkg/splitutil"
 )
-
-func (h *Handler) maxUploadSize(serviceID string) (int, error) {
-	res := h.db.QueryRow("SELECT guild_id, bot_token FROM godin.eris.services WHERE service_id = $1", serviceID)
-
-	var guildID int
-	var botToken string
-
-	if err := res.Scan(&guildID, &botToken); err != nil {
-		return 0, err
-	}
-
-	client, err := discord.New(botToken)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return client.GuildUploadSize(guildID)
-}
 
 type createSessionRequest struct {
 	FileName string `json:"file_name"`
@@ -46,13 +26,24 @@ type createSessionResponse struct {
 func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) error {
 	parsedURL, err := splitutil.SplitURL(r.URL.String(), []string{
 		"service_id",
-	}, 2)
+		"another_id",
+	}, 3)
 
 	if err != nil {
 		return err
 	}
 
 	serviceID := parsedURL["service_id"]
+
+	exists, err := h.serviceExists(serviceID)
+
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return responder.NewError(http.StatusNotFound, "Service not found")
+	}
 
 	request := createSessionRequest{}
 

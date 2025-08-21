@@ -37,6 +37,19 @@ go test -v ./internal/api/...
 ### Database Operations
 The application uses PostgreSQL with a custom database abstraction layer. Database operations are wrapped in transactions using the `Database.Transaction()` method.
 
+### Database Schema
+The application uses PostgreSQL with the following schema structure:
+
+**Schema: `godin.eris`**
+- `guilds`: Guild registration (guild_id)  
+- `services`: Service instances (service_id, guild_id, bot_token)
+- `channels`: Discord channels (guild_id, channel_id)
+- `webhooks`: Discord webhooks (webhook_id, channel_id, webhook_token)
+- `sessions`: Upload sessions (session_id, service_id, file_id, file_chunk_size, expiration_time)
+- `files`: File metadata (file_id, file_name)
+
+**Session Cleanup**: Expired sessions are automatically cleaned using `clearExpiredSessions()`
+
 ## High-Level Architecture
 
 ### Core Components
@@ -70,8 +83,10 @@ The API follows a service-oriented architecture with dynamic handler dispatch:
 ### Configuration Management
 - **Primary Config**: `config/config.yml` (YAML format)
 - **Environment Variables**: Prefixed with `GODIN_` (e.g., `GODIN_POSTGRES_CONNECTION_STRING`)
-- **Dotenv Support**: Loads `.env` files automatically
+- **Dotenv Support**: Loads `.env` files automatically via `github.com/subosito/gotenv`
 - **Validation**: Built-in validation for required fields and formats
+- **Module Path**: `wednesday.wtf/godin` (custom domain)
+- **Required Configuration**: `postgres_connection_string` is mandatory
 
 ### Database Architecture
 - **Connection**: Single PostgreSQL connection via `lib/pq` driver
@@ -85,8 +100,12 @@ The API follows a service-oriented architecture with dynamic handler dispatch:
 
 ### Service Integration
 - **Discord Integration**: `internal/discord/discord.go` for Discord API operations
+  - Guild initialization with channel and webhook creation
+  - Upload size limits based on Discord guild premium tier (10MB/50MB/100MB)
+  - Webhook management for file operations
 - **CDN Pattern**: Services implement standardized interfaces for file, session, and service management
 - **Modular Services**: New services can be added by implementing the `cdn.Handler` interface
+- **URL Parsing**: Uses `pkg/splitutil.SplitURL()` to extract path parameters from versioned URLs
 
 ### Key Dependencies
 - **HTTP Router**: Standard library `net/http` with `ServeMux`
@@ -104,6 +123,23 @@ services := map[string]cdn.Handler{
     // Add new services here
 }
 ```
+
+### Utility Packages
+- **`pkg/responder`**: Standardized JSON API responses with error handling
+- **`pkg/splitutil`**: URL parsing for extracting path parameters from versioned routes
+- **`pkg/jsonutil`**: JSON utility functions (currently empty, planned for future use)
+
+### Implementation Status
+**Completed Features:**
+- ✅ Service creation with Discord guild initialization
+- ✅ Session management with upload size detection
+- ✅ Database transaction handling
+- ✅ Error middleware and response handling
+
+**Placeholder Implementations:**
+- 🚧 File upload/download operations (`eris/file.go`)
+- 🚧 Service/session GET and DELETE operations
+- 🚧 Authentication middleware (`middleware/auth.go`)
 
 ### Development Notes
 - No existing test files - tests should be added following Go conventions

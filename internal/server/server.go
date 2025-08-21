@@ -2,12 +2,11 @@ package server
 
 import (
 	"net/http"
-	"wednesday.wtf/godin/internal/database"
 
 	"go.uber.org/zap"
-
 	"wednesday.wtf/godin/internal/api"
 	"wednesday.wtf/godin/internal/config"
+	"wednesday.wtf/godin/internal/database"
 )
 
 type Server struct {

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"wednesday.wtf/godin/internal/database"
 
 	"go.uber.org/zap"
 	"wednesday.wtf/godin/internal/api/handler/eris"
 	"wednesday.wtf/godin/internal/api/middleware"
 	"wednesday.wtf/godin/internal/cdn"
+	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/pkg/responder"
 )
 
@@ -64,6 +64,10 @@ func (r *Router) handleFile(w http.ResponseWriter, req *http.Request, h cdn.File
 		r.log.Debug("Creating file", zap.String("url", req.URL.String()))
 
 		return h.CreateFile(w, req)
+	case http.MethodPut:
+		r.log.Debug("Completing file", zap.String("url", req.URL.String()))
+
+		return h.PutFile(w, req)
 	case http.MethodGet:
 		r.log.Debug("Getting file", zap.String("url", req.URL.String()))
 
