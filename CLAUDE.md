@@ -45,10 +45,10 @@ The application uses PostgreSQL with the following schema structure:
 - `services`: Service instances (service_id, guild_id, bot_token)
 - `channels`: Discord channels (guild_id, channel_id)
 - `webhooks`: Discord webhooks (webhook_id, channel_id, webhook_token)
-- `sessions`: Upload sessions (session_id, service_id, file_id, file_chunk_size, expiration_time)
+- `sessions`: Upload sessions (session_id, service_id, file_id, file_chunk_size)
 - `files`: File metadata (file_id, file_name)
 
-**Session Cleanup**: Expired sessions are automatically cleaned using `clearExpiredSessions()`
+**Session Management**: Sessions expire after 5 minutes and are used for chunked file uploads
 
 ## High-Level Architecture
 
@@ -70,7 +70,7 @@ The API follows a service-oriented architecture with dynamic handler dispatch:
    ```go
    type Handler interface {
        Service   // CreateService, GetService, DeleteService
-       File      // CreateFile, GetFile, DeleteFile  
+       File      // CreateFile, PutFile, GetFile, DeleteFile  
        Session   // CreateSession, GetSession, DeleteSession
    }
    ```
@@ -80,6 +80,30 @@ The API follows a service-oriented architecture with dynamic handler dispatch:
    - Dispatches to appropriate handler method based on HTTP method
    - Error handling via middleware wrapper
 
+### API Endpoints
+
+#### Service Operations (`/v1/service/eris/`)
+- **POST**: Create service - Initializes Discord guild with channels and webhooks
+  - Request: `{"bot_token": "string", "guild_id": int, "guild_channel_count": int, "guild_webhook_count": int}`
+  - Response: `{"service_id": "uuid"}`
+- **GET**: Get service information (placeholder)
+- **DELETE**: Delete service (placeholder)
+
+#### Session Operations (`/v1/session/eris/{service_id}/`)
+- **POST**: Create upload session - Creates file metadata and session for chunked uploads
+  - Request: `{"file_name": "string"}`
+  - Response: `{"session_id": "uuid", "max_upload_size": int, "expires": int}`
+- **GET**: Get session information (placeholder)
+- **DELETE**: Delete session (placeholder)
+
+#### File Operations (`/v1/file/eris/{session_id}/`)
+- **POST**: Upload file chunks - Processes chunked file upload via Discord webhooks
+  - Request: Binary file data in request body
+  - Response: Success/error status
+- **PUT**: Complete file upload (placeholder)
+- **GET**: Download file (placeholder)
+- **DELETE**: Delete file (placeholder)
+
 ### Configuration Management
 - **Primary Config**: `config/config.yml` (YAML format)
 - **Environment Variables**: Prefixed with `GODIN_` (e.g., `GODIN_POSTGRES_CONNECTION_STRING`)
@@ -87,6 +111,7 @@ The API follows a service-oriented architecture with dynamic handler dispatch:
 - **Validation**: Built-in validation for required fields and formats
 - **Module Path**: `wednesday.wtf/godin` (custom domain)
 - **Required Configuration**: `postgres_connection_string` is mandatory
+- **Default Server**: `127.0.0.1:60000` (configurable via `server_address`)
 
 ### Database Architecture
 - **Connection**: Single PostgreSQL connection via `lib/pq` driver
@@ -103,6 +128,7 @@ The API follows a service-oriented architecture with dynamic handler dispatch:
   - Guild initialization with channel and webhook creation
   - Upload size limits based on Discord guild premium tier (10MB/50MB/100MB)
   - Webhook management for file operations
+  - Chunked file upload via Discord webhooks
 - **CDN Pattern**: Services implement standardized interfaces for file, session, and service management
 - **Modular Services**: New services can be added by implementing the `cdn.Handler` interface
 - **URL Parsing**: Uses `pkg/splitutil.SplitURL()` to extract path parameters from versioned URLs
@@ -114,6 +140,7 @@ The API follows a service-oriented architecture with dynamic handler dispatch:
 - **Logging**: `go.uber.org/zap` for structured logging
 - **Discord**: `github.com/bwmarrin/discordgo` for Discord API integration
 - **UUID**: `github.com/google/uuid` for service ID generation
+- **Environment**: `github.com/subosito/gotenv` for .env file support
 
 ### Service Registration
 Services are registered in `internal/api/router.go:NewRouter()`:
@@ -132,17 +159,20 @@ services := map[string]cdn.Handler{
 ### Implementation Status
 **Completed Features:**
 - ✅ Service creation with Discord guild initialization
-- ✅ Session management with upload size detection
+- ✅ Session management with upload size detection and 5-minute expiration
+- ✅ File upload with chunked processing via Discord webhooks
 - ✅ Database transaction handling
 - ✅ Error middleware and response handling
 
 **Placeholder Implementations:**
-- 🚧 File upload/download operations (`eris/file.go`)
+- 🚧 File download operations (`eris/file.go:GetFile()`)
+- 🚧 File completion via PUT (`eris/file.go:PutFile()`)
 - 🚧 Service/session GET and DELETE operations
 - 🚧 Authentication middleware (`middleware/auth.go`)
 
 ### Development Notes
 - No existing test files - tests should be added following Go conventions
 - Configuration requires PostgreSQL connection string
-- Server starts on port 60000 by default (configurable via `server_address`)
-- Development mode can be enabled via `development: true` in config.yml
+- Server starts on `127.0.0.1:60000` by default (configurable via `server_address`)
+- Development mode enabled via `development: true` in config.yml
+- File uploads are processed in chunks with size limits based on Discord guild tier

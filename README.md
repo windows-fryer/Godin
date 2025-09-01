@@ -116,25 +116,77 @@ The API follows the pattern `/v1/{resourceType}/{serviceName}/...` where:
 - `serviceName`: Currently supports `eris`
 
 ### Service Operations
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/v1/service/eris/` | Create a new service instance |
-| `GET` | `/v1/service/eris/` | Retrieve service information |
-| `DELETE` | `/v1/service/eris/` | Delete service instance |
 
-### Session Operations  
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/v1/session/eris/` | Create a new session |
-| `GET` | `/v1/session/eris/` | Retrieve session information |
-| `DELETE` | `/v1/session/eris/` | Delete session |
+#### `POST /v1/service/eris/`
+Create a new service instance and initialize Discord guild with channels and webhooks.
+
+**Request Body:**
+```json
+{
+  "bot_token": "string",
+  "guild_id": 123456789,
+  "guild_channel_count": 5,
+  "guild_webhook_count": 10
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "service_id": "uuid-string"
+}
+```
+
+#### `GET /v1/service/eris/` *(Placeholder)*
+Retrieve service information.
+
+#### `DELETE /v1/service/eris/` *(Placeholder)*
+Delete service instance.
+
+### Session Operations
+
+#### `POST /v1/session/eris/{service_id}/`
+Create a new upload session for chunked file uploads.
+
+**Request Body:**
+```json
+{
+  "file_name": "example.txt"
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "session_id": "uuid-string",
+  "max_upload_size": 52428800,
+  "expires": 1693939200
+}
+```
+
+#### `GET /v1/session/eris/{service_id}/` *(Placeholder)*
+Retrieve session information.
+
+#### `DELETE /v1/session/eris/{service_id}/` *(Placeholder)*
+Delete session.
 
 ### File Operations
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/v1/file/eris/` | Upload/create a file |
-| `GET` | `/v1/file/eris/` | Retrieve file content |
-| `DELETE` | `/v1/file/eris/` | Delete file |
+
+#### `POST /v1/file/eris/{session_id}/`
+Upload file chunks via Discord webhooks. Processes binary file data in chunks based on Discord guild upload limits.
+
+**Request Body:** Binary file data
+
+**Response:** Success/error status
+
+#### `PUT /v1/file/eris/{session_id}/` *(Placeholder)*
+Complete file upload process.
+
+#### `GET /v1/file/eris/{session_id}/` *(Placeholder)*
+Download/retrieve file content.
+
+#### `DELETE /v1/file/eris/{session_id}/` *(Placeholder)*
+Delete file.
 
 ## 🔧 Development
 
@@ -211,7 +263,16 @@ go test -v ./internal/api/...
 - **Environment Variables**: Prefixed with `GODIN_` (e.g., `GODIN_POSTGRES_CONNECTION_STRING`)
 - **Dotenv Support**: Loads `.env` files automatically
 - **Validation**: Built-in validation for required fields and formats
-- **Default Port**: Server starts on port 60000 (configurable via `server_address`)
+- **Default Server**: `127.0.0.1:60000` (configurable via `server_address`)
+- **Development Mode**: Enable via `development: true` in config.yml
+
+#### Configuration Structure
+```yaml
+# config/config.yml
+development: true
+server_address: "127.0.0.1:60000"
+postgres_connection_string: "your-postgres-connection-string"
+```
 
 ### Adding New Services
 
