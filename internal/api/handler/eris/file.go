@@ -1,6 +1,7 @@
 package eris
 
 import (
+	"bytes"
 	"database/sql"
 	"io"
 	"net/http"
@@ -87,11 +88,11 @@ func (h *Handler) CreateFile(w http.ResponseWriter, r *http.Request) error {
 		return responder.NewError(401, "Invalid session ID")
 	}
 
-	//sessionMetadata, err := h.sessionMetadata(sessionID)
+	sessionMetadata, err := h.sessionMetadata(sessionID)
 
-	//if err != nil {
-	//	return err
-	//}
+	if err != nil {
+		return err
+	}
 
 	serviceID, err := h.getServiceID(sessionID)
 
@@ -160,12 +161,30 @@ func (h *Handler) CreateFile(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	body := io.Reader(r.Body)
+	var chunkSize = int64(sessionMetadata.chunkSize*1024*1024 - 1024)
 
-	_, err = discordClient.client.UploadChunk(webhookID, webhookToken, &body)
+	for {
+		chunkReader := io.LimitReader(r.Body, chunkSize)
 
-	if err != nil {
-		return err
+		firstByte := make([]byte, 1)
+
+		n, err := chunkReader.Read(firstByte)
+
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return err
+		}
+
+		fullChunkReader := io.MultiReader(bytes.NewReader(firstByte[:n]), chunkReader)
+
+		_, err = discordClient.client.UploadChunk(webhookID, webhookToken, &fullChunkReader)
+
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
