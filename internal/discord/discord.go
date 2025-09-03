@@ -2,6 +2,7 @@ package discord
 
 import (
 	"io"
+	"net/url"
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
@@ -113,13 +114,14 @@ func (c *Client) GuildUploadSize(guildID int) (int, error) {
 }
 
 type FileResponse struct {
-	messageID      string
-	attachmentURL  string
-	attachmentSize int
+	MessageID         string
+	AttachmentExpires int
+	AttachmentURL     string
+	AttachmentSize    int
 }
 
 func (c *Client) UploadChunk(webhookID string, webhookToken string, r *io.Reader) (*FileResponse, error) {
-	_, err := c.session.WebhookExecute(webhookID, webhookToken, true, &discordgo.WebhookParams{
+	message, err := c.session.WebhookExecute(webhookID, webhookToken, true, &discordgo.WebhookParams{
 		Files: []*discordgo.File{{
 			Name:   uuid.NewString(),
 			Reader: *r,
@@ -130,5 +132,25 @@ func (c *Client) UploadChunk(webhookID string, webhookToken string, r *io.Reader
 		return nil, err
 	}
 
-	return nil, nil
+	attachment := message.Attachments[0]
+	attachmentUrl := attachment.URL
+
+	attachmentUrlParsed, err := url.Parse(attachmentUrl)
+
+	if err != nil {
+		return nil, err
+	}
+
+	attachmentExpires, err := strconv.ParseInt(attachmentUrlParsed.Query().Get("ex"), 16, 64)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &FileResponse{
+		MessageID:         message.ID,
+		AttachmentExpires: int(attachmentExpires),
+		AttachmentURL:     attachmentUrl,
+		AttachmentSize:    attachment.Size,
+	}, nil
 }

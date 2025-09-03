@@ -41,11 +41,15 @@ func main() {
 
 	db, err := database.New(log, cfg)
 
+	log.Info("Connection established to database")
+
 	if err != nil {
 		panic(err)
 	}
 
 	srv := server.New(log, db, cfg)
+
+	log.Info("Connection established to server")
 
 	if err := srv.Start(); err != nil {
 		panic(err)

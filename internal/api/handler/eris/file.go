@@ -3,9 +3,11 @@ package eris
 import (
 	"bytes"
 	"database/sql"
+	"fmt"
 	"io"
 	"net/http"
 
+	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/pkg/responder"
 	"wednesday.wtf/godin/pkg/splitutil"
 )
@@ -58,7 +60,7 @@ type SessionMetadata struct {
 func (h *Handler) sessionMetadata(id string) (*SessionMetadata, error) {
 	metadata := SessionMetadata{}
 
-	res := h.db.QueryRow(`SELECT file_chunk_size, file_id FROM godin.eris.sessions WHERE session_id = $1`, id)
+	res := h.db.QueryRow("SELECT file_chunk_size, file_id FROM godin.eris.sessions WHERE session_id = $1", id)
 
 	if err := res.Scan(&metadata.chunkSize, &metadata.fileID); err != nil {
 		return nil, err
@@ -142,30 +144,70 @@ func (h *Handler) CreateFile(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	query, err = h.db.Query("SELECT webhook_id, webhook_token FROM godin.eris.webhooks WHERE channel_id = $1 ORDER BY RANDOM() LIMIT 1", channelID)
+	rows, err := h.db.Query(
+		"SELECT webhook_id, webhook_token FROM godin.eris.webhooks WHERE channel_id = $1 ORDER BY RANDOM()",
+		channelID,
+	)
 
 	if err != nil {
 		return err
 	}
 
-	query.Next()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
 
-	var webhookID string
-	var webhookToken string
+		if err != nil {
+			panic(err)
+		}
+	}(rows)
 
-	if err = query.Scan(&webhookID, &webhookToken); err != nil {
+	var webhooks [][2]string
+
+	for rows.Next() {
+		var webhookID, webhookToken string
+		if err := rows.Scan(&webhookID, &webhookToken); err != nil {
+			return err
+		}
+		webhooks = append(webhooks, [2]string{webhookID, webhookToken})
+	}
+
+	if err := rows.Err(); err != nil {
 		return err
 	}
 
-	if err = query.Close(); err != nil {
+	if len(webhooks) == 0 {
+		return responder.NewError(500, fmt.Sprintf("No webhooks found for channel %s", channelID))
+	}
+
+	const MbToBytes = 1048576
+	const HttpHeaderSize = 1024 // rough guess, 1KB lost should be fine...
+
+	chunkSize := int64(sessionMetadata.chunkSize*MbToBytes - HttpHeaderSize)
+
+	var partIndex int
+
+	res, err := h.db.Query("SELECT COALESCE(MAX(part_index), 0) FROM godin.eris.file_parts WHERE file_id = $1", sessionMetadata.fileID)
+
+	if err != nil {
 		return err
 	}
 
-	var chunkSize = int64(sessionMetadata.chunkSize*1024*1024 - 1024)
+	defer func(res *sql.Rows) {
+		err := res.Close()
+
+		if err != nil {
+			panic(err)
+		}
+	}(res)
+
+	res.Next()
+
+	if err := res.Scan(&partIndex); err != nil {
+		return err
+	}
 
 	for {
 		chunkReader := io.LimitReader(r.Body, chunkSize)
-
 		firstByte := make([]byte, 1)
 
 		n, err := chunkReader.Read(firstByte)
@@ -180,9 +222,26 @@ func (h *Handler) CreateFile(w http.ResponseWriter, r *http.Request) error {
 
 		fullChunkReader := io.MultiReader(bytes.NewReader(firstByte[:n]), chunkReader)
 
-		_, err = discordClient.client.UploadChunk(webhookID, webhookToken, &fullChunkReader)
+		webhook := webhooks[partIndex%len(webhooks)]
+		webhookID, webhookToken := webhook[0], webhook[1]
+
+		metadata, err := discordClient.client.UploadChunk(webhookID, webhookToken, &fullChunkReader)
 
 		if err != nil {
+			return err
+		}
+
+		partIndex++
+
+		// TODO: Extract this outside of the loop and push all file parts at once; We don't need to do a transaction for each part
+
+		if _, err = h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
+			if _, err := tx.Exec("INSERT INTO godin.eris.file_parts (file_id, channel_id, message_id, message_url, message_expiration, part_index) VALUES ($1, $2, $3, $4, to_timestamp($5)::timestamptz, $6)", sessionMetadata.fileID, channelID, metadata.MessageID, metadata.AttachmentURL, metadata.AttachmentExpires, partIndex); err != nil {
+				return nil, err
+			}
+
+			return nil, nil
+		}); err != nil {
 			return err
 		}
 	}
