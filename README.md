@@ -3,7 +3,6 @@
 > A powerful Go backend service with service-oriented architecture, featuring dynamic handler dispatch and PostgreSQL integration for scalable CDN-like resource management.
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## ✨ Features
 
