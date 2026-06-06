@@ -1,7 +1,9 @@
 package database
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,51 +18,22 @@ type Database struct {
 	config *config.Config
 }
 
-func (d *Database) clearExpiredSessions() error {
-	if _, err := d.Transaction(func(d *Database, tx *sql.Tx) (*sql.Result, error) {
-		rows, err := tx.Query(`
-			SELECT CONCAT('godin.', schema_name, '.sessions') AS full_table_name
-			FROM information_schema.schemata 
-			WHERE schema_name LIKE '%'
-			AND EXISTS (
-				SELECT 1 
-				FROM information_schema.tables 
-				WHERE table_schema = schemata.schema_name 
-				AND table_name = 'sessions'
-			)
-		`)
+func (d *Database) clearExpiredSessions(ctx context.Context) error {
+	_, err := d.db.ExecContext(ctx, `
+		UPDATE eris.sessions
+		SET status = 'expired', updated_at = NOW()
+		WHERE status = 'open'
+		AND expiration_time < NOW()
+	`)
+	if err == nil {
+		return nil
+	}
 
-		if err != nil {
-			return nil, err
-		}
-
-		defer func(rows *sql.Rows) {
-			err := rows.Close()
-
-			if err != nil {
-				panic(err)
-			}
-		}(rows)
-
-		for rows.Next() {
-			var schema string
-
-			if err := rows.Scan(&schema); err != nil {
-				return nil, err
-			}
-
-			if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE expiration_time < NOW()", schema)); err != nil {
-				return nil, err
-			}
-		}
-
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-
-		return nil, nil
-	}); err != nil {
-		return err
+	// Older development databases may not have the status/updated_at columns yet.
+	// Fall back to deleting known expired session rows from the one owned table rather
+	// than dynamically scanning arbitrary schemas.
+	if _, fallbackErr := d.db.ExecContext(ctx, `DELETE FROM eris.sessions WHERE expiration_time < NOW()`); fallbackErr != nil {
+		return errors.Join(err, fallbackErr)
 	}
 
 	return nil
@@ -83,18 +56,17 @@ func New(log *zap.Logger, cfg *config.Config) (*Database, error) {
 		config: cfg,
 	}
 
-	if err := database.clearExpiredSessions(); err != nil {
-		panic(err)
+	if err := database.clearExpiredSessions(context.Background()); err != nil {
+		log.Warn("failed to clear expired sessions", zap.Error(err))
 	}
 
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
-
 		defer ticker.Stop()
 
 		for range ticker.C {
-			if err := database.clearExpiredSessions(); err != nil {
-				panic(err)
+			if err := database.clearExpiredSessions(context.Background()); err != nil {
+				log.Warn("failed to clear expired sessions", zap.Error(err))
 			}
 		}
 	}()
@@ -106,36 +78,45 @@ func (d *Database) Close() error {
 	return d.db.Close()
 }
 
-type TransactionFn func(d *Database, tx *sql.Tx) (*sql.Result, error)
+type TransactionFn func(d *Database, tx *sql.Tx) error
 
-func (d *Database) Transaction(fn TransactionFn) (*sql.Result, error) {
-	tx, err := d.db.Begin()
+func (d *Database) Transaction(fn TransactionFn) error {
+	return d.TransactionContext(context.Background(), fn)
+}
 
+func (d *Database) TransactionContext(ctx context.Context, fn TransactionFn) error {
+	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	result, err := fn(d, tx)
-
-	if err != nil {
-		if err := tx.Rollback(); err != nil {
-			return nil, err
+	if err := fn(d, tx); err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			return fmt.Errorf("transaction failed: %w; rollback failed: %w", err, rollbackErr)
 		}
 
-		return nil, err
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return err
 	}
 
-	return result, nil
+	return nil
 }
 
 func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return d.db.Query(query, args...)
 }
 
+func (d *Database) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return d.db.QueryContext(ctx, query, args...)
+}
+
 func (d *Database) QueryRow(query string, args ...interface{}) *sql.Row {
 	return d.db.QueryRow(query, args...)
+}
+
+func (d *Database) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return d.db.QueryRowContext(ctx, query, args...)
 }

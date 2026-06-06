@@ -3,37 +3,21 @@ package eris
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/pkg/responder"
-	"wednesday.wtf/godin/pkg/splitutil"
 )
 
 func (h *Handler) getServiceID(sessionID string) (string, error) {
-	res, err := h.db.Query("SELECT service_id FROM godin.eris.sessions WHERE session_id = $1", sessionID)
-
-	if err != nil {
-		return "", err
-	}
-
-	defer func(res *sql.Rows) {
-		err := res.Close()
-
-		if err != nil {
-			panic(err)
-		}
-	}(res)
+	res := h.db.QueryRow("SELECT service_id FROM eris.sessions WHERE session_id = $1", sessionID)
 
 	var serviceID string
-
-	res.Next()
-
-	err = res.Scan(&serviceID)
-
-	if err != nil {
+	if err := res.Scan(&serviceID); err != nil {
 		return "", err
 	}
 
@@ -43,7 +27,7 @@ func (h *Handler) getServiceID(sessionID string) (string, error) {
 func (h *Handler) sessionExists(id string) (bool, error) {
 	var found bool
 
-	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM godin.eris.sessions WHERE session_id = $1)`, id)
+	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM eris.sessions WHERE session_id = $1 AND status = 'open' AND expiration_time > NOW())`, id)
 
 	if err := res.Scan(&found); err != nil {
 		return false, err
@@ -53,16 +37,17 @@ func (h *Handler) sessionExists(id string) (bool, error) {
 }
 
 type SessionMetadata struct {
-	chunkSize int
-	fileID    string
+	chunkSize      int
+	fileID         string
+	expirationTime time.Time
 }
 
 func (h *Handler) sessionMetadata(id string) (*SessionMetadata, error) {
 	metadata := SessionMetadata{}
 
-	res := h.db.QueryRow("SELECT file_chunk_size, file_id FROM godin.eris.sessions WHERE session_id = $1", id)
+	res := h.db.QueryRow("SELECT file_chunk_size, file_id, expiration_time FROM eris.sessions WHERE session_id = $1 AND status = 'open'", id)
 
-	if err := res.Scan(&metadata.chunkSize, &metadata.fileID); err != nil {
+	if err := res.Scan(&metadata.chunkSize, &metadata.fileID, &metadata.expirationTime); err != nil {
 		return nil, err
 	}
 
@@ -70,99 +55,59 @@ func (h *Handler) sessionMetadata(id string) (*SessionMetadata, error) {
 }
 
 func (h *Handler) CreateFile(w http.ResponseWriter, r *http.Request) error {
-	parsedURL, err := splitutil.SplitURL(r.URL.String(), []string{
-		"session_id",
-	}, 3)
-
-	if err != nil {
-		return err
+	sessionID := r.PathValue("session_id")
+	if sessionID == "" {
+		return responder.NewError(http.StatusBadRequest, "session_id is required")
 	}
 
-	sessionID := parsedURL["session_id"]
-
 	sessionExists, err := h.sessionExists(sessionID)
-
 	if err != nil {
 		return err
 	}
 
 	if !sessionExists {
-		return responder.NewError(401, "Invalid session ID")
+		return responder.NewError(http.StatusNotFound, "upload session not found or expired")
 	}
 
 	sessionMetadata, err := h.sessionMetadata(sessionID)
-
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return responder.NewError(http.StatusNotFound, "upload session not found or expired")
+		}
 		return err
 	}
 
 	serviceID, err := h.getServiceID(sessionID)
-
 	if err != nil {
 		return err
 	}
 
 	discordClient, err := h.getDiscordClient(serviceID)
-
 	if err != nil {
 		return err
 	}
-
-	query, err := h.db.Query("SELECT guild_id FROM godin.eris.services WHERE service_id = $1 ORDER BY RANDOM() LIMIT 1", serviceID)
-
-	if err != nil {
-		return err
-	}
-
-	query.Next()
 
 	var guildID string
-
-	if err = query.Scan(&guildID); err != nil {
+	if err := h.db.QueryRowContext(r.Context(), "SELECT guild_id FROM eris.services WHERE service_id = $1", serviceID).Scan(&guildID); err != nil {
 		return err
 	}
-
-	if err = query.Close(); err != nil {
-		return err
-	}
-
-	query, err = h.db.Query("SELECT channel_id FROM godin.eris.channels WHERE guild_id = $1 ORDER BY RANDOM() LIMIT 1", guildID)
-
-	if err != nil {
-		return err
-	}
-
-	query.Next()
 
 	var channelID string
-
-	if err = query.Scan(&channelID); err != nil {
+	if err := h.db.QueryRowContext(r.Context(), "SELECT channel_id FROM eris.channels WHERE guild_id = $1 AND status = 'active' ORDER BY RANDOM() LIMIT 1", guildID).Scan(&channelID); err != nil {
 		return err
 	}
 
-	if err = query.Close(); err != nil {
-		return err
-	}
-
-	rows, err := h.db.Query(
-		"SELECT webhook_id, webhook_token FROM godin.eris.webhooks WHERE channel_id = $1 ORDER BY RANDOM()",
+	rows, err := h.db.QueryContext(
+		r.Context(),
+		"SELECT webhook_id, webhook_token FROM eris.webhooks WHERE channel_id = $1 AND status = 'active' ORDER BY RANDOM()",
 		channelID,
 	)
-
 	if err != nil {
 		return err
 	}
-
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-
-		if err != nil {
-			panic(err)
-		}
-	}(rows)
+	defer rows.Close()
 
 	var webhooks [][2]string
-
 	for rows.Next() {
 		var webhookID, webhookToken string
 		if err := rows.Scan(&webhookID, &webhookToken); err != nil {
@@ -176,46 +121,39 @@ func (h *Handler) CreateFile(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	if len(webhooks) == 0 {
-		return responder.NewError(500, fmt.Sprintf("No webhooks found for channel %s", channelID))
+		return responder.NewError(http.StatusInternalServerError, fmt.Sprintf("no active webhooks found for channel %s", channelID))
 	}
 
-	const MbToBytes = 1048576
-	const HttpHeaderSize = 1024 // rough guess, 1KB lost should be fine...
+	const mbToBytes = 1048576
+	const httpHeaderSize = 1024 // Conservative allowance for multipart overhead.
 
-	chunkSize := int64(sessionMetadata.chunkSize*MbToBytes - HttpHeaderSize)
+	chunkSize := int64(sessionMetadata.chunkSize*mbToBytes - httpHeaderSize)
+	if chunkSize <= 0 {
+		return responder.NewError(http.StatusInternalServerError, "invalid upload chunk size")
+	}
 
-	var partIndex int
+	partIndex := -1
+	if err := h.db.QueryRowContext(r.Context(), "SELECT COALESCE(MAX(part_index), -1) FROM eris.file_parts WHERE file_id = $1", sessionMetadata.fileID).Scan(&partIndex); err != nil {
+		return err
+	}
+	partIndex++
 
-	res, err := h.db.Query("SELECT COALESCE(MAX(part_index), 0) FROM godin.eris.file_parts WHERE file_id = $1", sessionMetadata.fileID)
-
-	if err != nil {
+	if err := h.db.TransactionContext(r.Context(), func(d *database.Database, tx *sql.Tx) error {
+		_, err := tx.ExecContext(r.Context(), "UPDATE eris.files SET status = 'uploading', updated_at = NOW() WHERE file_id = $1 AND status IN ('pending', 'uploading')", sessionMetadata.fileID)
+		return err
+	}); err != nil {
 		return err
 	}
 
-	defer func(res *sql.Rows) {
-		err := res.Close()
-
-		if err != nil {
-			panic(err)
-		}
-	}(res)
-
-	res.Next()
-
-	if err := res.Scan(&partIndex); err != nil {
-		return err
-	}
-
+	uploadedParts := 0
 	for {
 		chunkReader := io.LimitReader(r.Body, chunkSize)
 		firstByte := make([]byte, 1)
 
 		n, err := chunkReader.Read(firstByte)
-
 		if err == io.EOF {
 			break
 		}
-
 		if err != nil {
 			return err
 		}
@@ -226,37 +164,70 @@ func (h *Handler) CreateFile(w http.ResponseWriter, r *http.Request) error {
 		webhookID, webhookToken := webhook[0], webhook[1]
 
 		metadata, err := discordClient.client.UploadChunk(webhookID, webhookToken, &fullChunkReader)
-
 		if err != nil {
 			return err
 		}
 
+		currentPartIndex := partIndex
 		partIndex++
+		uploadedParts++
 
-		// TODO: Extract this outside of the loop and push all file parts at once; We don't need to do a transaction for each part
-
-		if _, err = h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
-			if _, err := tx.Exec("INSERT INTO godin.eris.file_parts (file_id, channel_id, message_id, message_url, message_expiration, part_index) VALUES ($1, $2, $3, $4, to_timestamp($5)::timestamptz, $6)", sessionMetadata.fileID, channelID, metadata.MessageID, metadata.AttachmentURL, metadata.AttachmentExpires, partIndex); err != nil {
-				return nil, err
+		if err = h.db.TransactionContext(r.Context(), func(d *database.Database, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(r.Context(), "INSERT INTO eris.file_parts (file_id, channel_id, message_id, message_url, message_expiration, part_index, size_bytes) VALUES ($1, $2, $3, $4, to_timestamp($5)::timestamptz, $6, $7)", sessionMetadata.fileID, channelID, metadata.MessageID, metadata.AttachmentURL, metadata.AttachmentExpires, currentPartIndex, metadata.AttachmentSize); err != nil {
+				return err
 			}
 
-			return nil, nil
+			if _, err := tx.ExecContext(r.Context(), "UPDATE eris.files SET uploaded_bytes = COALESCE(uploaded_bytes, 0) + $1, updated_at = NOW() WHERE file_id = $2", metadata.AttachmentSize, sessionMetadata.fileID); err != nil {
+				return err
+			}
+
+			return nil
 		}); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return responder.Respond(w, http.StatusCreated, map[string]any{
+		"file_id":        sessionMetadata.fileID,
+		"uploaded_parts": uploadedParts,
+	})
 }
 
 func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	return responder.NewError(http.StatusNotImplemented, "not implemented")
 }
 
 func (h *Handler) DeleteFile(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	return responder.NewError(http.StatusNotImplemented, "not implemented")
 }
 
 func (h *Handler) PutFile(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	sessionID := r.PathValue("session_id")
+	if sessionID == "" {
+		return responder.NewError(http.StatusBadRequest, "session_id is required")
+	}
+
+	if err := h.db.TransactionContext(r.Context(), func(d *database.Database, tx *sql.Tx) error {
+		var fileID string
+		if err := tx.QueryRowContext(r.Context(), "SELECT file_id FROM eris.sessions WHERE session_id = $1 AND status = 'open' AND expiration_time > NOW() FOR UPDATE", sessionID).Scan(&fileID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return responder.NewError(http.StatusNotFound, "upload session not found or expired")
+			}
+			return err
+		}
+
+		if _, err := tx.ExecContext(r.Context(), "UPDATE eris.files SET status = 'complete', completed_at = NOW(), updated_at = NOW() WHERE file_id = $1", fileID); err != nil {
+			return err
+		}
+
+		if _, err := tx.ExecContext(r.Context(), "UPDATE eris.sessions SET status = 'complete', updated_at = NOW() WHERE session_id = $1", sessionID); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return responder.Respond(w, http.StatusOK, map[string]string{"status": "complete"})
 }

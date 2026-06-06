@@ -41,11 +41,12 @@ func main() {
 
 	db, err := database.New(log, cfg)
 
-	log.Info("Connection established to database")
-
 	if err != nil {
 		panic(err)
 	}
+	defer db.Close()
+
+	log.Info("Connection established to database")
 
 	srv := server.New(log, db, cfg)
 
