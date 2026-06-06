@@ -28,7 +28,7 @@ type createServiceResponse struct {
 func (h *Handler) guildExists(guildID int) bool {
 	var found bool
 
-	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM godin.eris.guilds WHERE guild_id = $1)`, guildID)
+	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM eris.guilds WHERE guild_id = $1)`, guildID)
 
 	if err := res.Scan(&found); err != nil {
 		return false
@@ -40,7 +40,7 @@ func (h *Handler) guildExists(guildID int) bool {
 func (h *Handler) serviceExists(id string) (bool, error) {
 	var found bool
 
-	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM godin.eris.services WHERE service_id = $1)`, id)
+	res := h.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM eris.services WHERE service_id = $1)`, id)
 
 	if err := res.Scan(&found); err != nil {
 		return false, err
@@ -56,72 +56,66 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	if request.BotToken == "" {
+		return responder.NewError(http.StatusBadRequest, "bot_token is required")
+	}
+
+	if request.GuildID == 0 {
+		return responder.NewError(http.StatusBadRequest, "guild_id is required")
+	}
+
 	if ok := h.guildExists(request.GuildID); ok {
 		return responder.NewError(http.StatusBadRequest, "guild already exists")
 	}
 
 	client, err := discord.New(request.BotToken)
-
 	if err != nil {
 		return err
 	}
 
 	endpoints, err := client.InitializeGuild(strconv.Itoa(request.GuildID), request.GuildChannelCount, request.GuildWebhookCount)
-
 	if err != nil {
 		return err
 	}
 
 	h.log.Debug("Endpoints Created", zap.Any("endpoints", endpoints))
 
-	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
-		if _, err := tx.Exec(`INSERT INTO godin.eris.guilds (guild_id) VALUES ($1)`, request.GuildID); err != nil {
-			return nil, err
-		}
-
-		return nil, nil
-	}); err != nil {
-		return err
-	}
-
 	serviceID := uuid.NewString()
 
-	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
-		if _, err := tx.Exec(`INSERT INTO godin.eris.services (service_id, guild_id, bot_token) VALUES ($1, $2, $3)`, serviceID, request.GuildID, request.BotToken); err != nil {
-			return nil, err
+	if err := h.db.TransactionContext(r.Context(), func(d *database.Database, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(r.Context(), `INSERT INTO eris.guilds (guild_id) VALUES ($1)`, request.GuildID); err != nil {
+			return err
 		}
 
-		return nil, nil
-	}); err != nil {
-		return err
-	}
+		if _, err := tx.ExecContext(r.Context(), `INSERT INTO eris.services (service_id, guild_id, bot_token, status) VALUES ($1, $2, $3, 'active')`, serviceID, request.GuildID, request.BotToken); err != nil {
+			return err
+		}
 
-	if _, err := h.db.Transaction(func(d *database.Database, tx *sql.Tx) (*sql.Result, error) {
-		channelsStmt, err := tx.Prepare(`INSERT INTO godin.eris.channels (guild_id, channel_id) VALUES ($1, $2)`)
-
+		channelsStmt, err := tx.PrepareContext(r.Context(), `INSERT INTO eris.channels (guild_id, channel_id, status) VALUES ($1, $2, 'active')`)
 		if err != nil {
-			return nil, err
+			return err
 		}
+		defer channelsStmt.Close()
 
-		webhooksStmt, err := tx.Prepare(`INSERT INTO godin.eris.webhooks (webhook_id, channel_id, webhook_token) VALUES ($1, $2, $3)`)
-
+		webhooksStmt, err := tx.PrepareContext(r.Context(), `INSERT INTO eris.webhooks (webhook_id, channel_id, webhook_token, status) VALUES ($1, $2, $3, 'active')`)
 		if err != nil {
-			return nil, err
+			return err
 		}
+		defer webhooksStmt.Close()
 
 		for channelID, webhooks := range endpoints {
-			if _, err := channelsStmt.Exec(request.GuildID, channelID); err != nil {
-				return nil, err
+			if _, err := channelsStmt.ExecContext(r.Context(), request.GuildID, channelID); err != nil {
+				return err
 			}
 
 			for _, webhookData := range webhooks {
-				if _, err = webhooksStmt.Exec(webhookData.ID, channelID, webhookData.Token); err != nil {
-					return nil, err
+				if _, err = webhooksStmt.ExecContext(r.Context(), webhookData.ID, channelID, webhookData.Token); err != nil {
+					return err
 				}
 			}
 		}
 
-		return nil, nil
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -132,9 +126,9 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) GetService(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	return responder.NewError(http.StatusNotImplemented, "not implemented")
 }
 
 func (h *Handler) DeleteService(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	return responder.NewError(http.StatusNotImplemented, "not implemented")
 }
