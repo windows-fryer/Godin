@@ -1,9 +1,6 @@
 package eris
 
 import (
-	"database/sql"
-	"errors"
-
 	"go.uber.org/zap"
 	"wednesday.wtf/godin/internal/database"
 	"wednesday.wtf/godin/internal/discord"
@@ -29,15 +26,12 @@ type DiscordClientData struct {
 }
 
 func (h *Handler) getDiscordClient(serviceID string) (*DiscordClientData, error) {
-	res := h.db.QueryRow("SELECT guild_id, bot_token FROM eris.services WHERE service_id = $1", serviceID)
+	res := h.db.QueryRow("SELECT guild_id, bot_token FROM godin.eris.services WHERE service_id = $1", serviceID)
 
 	var guildID int
 	var botToken string
 
 	if err := res.Scan(&guildID, &botToken); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, err
-		}
 		return nil, err
 	}
 
